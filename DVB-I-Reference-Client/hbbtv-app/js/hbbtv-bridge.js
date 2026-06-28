@@ -56,4 +56,15 @@
     var isFull = !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
     return isFull ? hbbtv.exitFullscreen() : hbbtv.requestFullscreen();
   };
+  /**
+   * Tizen TV: register special remote keys so they fire keydown events.
+   * Without registration, colored buttons and Back produce no keydown.
+   * Safe no-op on non-Tizen platforms.
+   */
+  if (window.tizen && tizen.tvinputdevice) {
+    var tizenKeys = ['ColorF0Red', 'ColorF1Green', 'ColorF2Yellow', 'ColorF3Blue', 'Back'];
+    tizenKeys.forEach(function (name) {
+      try { tizen.tvinputdevice.registerKey(name); } catch (e) {}
+    });
+  }
 })();

@@ -218,16 +218,29 @@
     this._mpdUrl      = null;
     this._offscreen   = document.createElement('canvas');
     this._offCtx      = this._offscreen.getContext('2d');
-    this._imgData     = null; // reused ImageData to avoid per-frame allocation
+    this._imgData     = null; // reused ImageData (RGBA path)
     this._globalFrameIdx  = 0;
     this._playbackStart   = null;
-    this._targetLagSegs   = 0; // segments behind live edge we're allowed to be (matches SPD)
-    this._playerGen       = 0; // incremented on each _createPlayer(); stale callbacks ignored
+    this._targetLagSegs   = 0;
+    this._playerGen       = 0;
+    // WebGL YUV path — populated in _createPlayer if WebGL is available
+    this._useWebGL    = false;
+    this._yuvCanvas   = null; // hidden canvas with WebGL context for YUV shader
+    this._yuvRenderer = null; // YUVCanvas instance
   }
 
   // Creates (or re-creates) the Broadway player and wires up onPictureDecoded.
   // Called on start() and whenever we jump to the live edge so the old worker
   // is terminated and all its queued (stale) frames are discarded.
+  // Draw src canvas into dst context maintaining aspect ratio (letterbox / pillarbox).
+  function drawContain(ctx, src, srcW, srcH, dstW, dstH) {
+    var scale = Math.min(dstW / srcW, dstH / srcH);
+    var x = (dstW - srcW * scale) / 2 | 0;
+    var y = (dstH - srcH * scale) / 2 | 0;
+    ctx.clearRect(0, 0, dstW, dstH);
+    ctx.drawImage(src, x, y, srcW * scale | 0, srcH * scale | 0);
+  }
+
   WasmDecoder.prototype._createPlayer = function () {
     var self = this;
 
@@ -240,76 +253,121 @@
     self._globalFrameIdx  = 0;
     self._playbackStart   = null;
     self._imgData         = null;
+    self._yuvCanvas       = null;
+    self._yuvRenderer     = null;
     self._playerGen++;
-    var myGen = self._playerGen; // captured in closure; stale workers have lower gen
+    var myGen = self._playerGen;
 
     // useWorker: true     → Broadway decodes in a Web Worker; main thread stays free.
-    // webgl: false        → Worker outputs RGBA pixels via asm.js YUV→RGB.
-    // render: false       → Disable Broadway's own renderFrameRGB (it draws to an
-    //                       internal canvas that is never in the DOM — pure waste).
-    // transferMemory:true → Zero-copy NAL transfer to worker (transfers ArrayBuffer
-    //                       ownership instead of copying each NAL before postMessage).
+    // webgl: 'auto'       → If TV has WebGL: worker sends raw YUV420 (no asm.js
+    //                       YUV→RGBA in worker, 37.5% less postMessage data);
+    //                       YUVCanvas GPU shader handles conversion on main thread.
+    //                       If no WebGL: falls back to RGBA worker output automatically.
+    // render: false       → Disable Broadway's own canvas render (never in DOM).
+    // transferMemory:true → Zero-copy NAL transfer to worker.
     self._player = new Player({
       useWorker:      true,
       workerFile:     'js/broadway-decoder.js',
-      webgl:          false,
+      webgl:          'auto',
       render:         false,
       transferMemory: true,
-      size: { width: 1, height: 1 } // irrelevant with render:false
+      size:           { width: 1, height: 1 }
     });
+
+    // Record which path the worker will use for this player instance.
+    // self._player.webgl is set by Broadway's auto-detection before we read it.
+    self._useWebGL = self._player.webgl;
+    console.log('[WasmDecoder] render path:', self._useWebGL ? 'WebGL YUV shader' : 'software RGBA');
 
     self._player.onPictureDecoded = function (buf, width, height) {
       if (self._stopped) return;
-      // Discard callbacks queued by a previous player that fired after terminate().
       if (self._playerGen !== myGen) return;
+
+      if (!self._firstFrameReported) {
+        self._firstFrameReported = true;
+        if (typeof self.onFirstFrame === 'function') { self.onFirstFrame(width, height); }
+      }
 
       var fi = self._globalFrameIdx++;
       if (self._playbackStart === null) self._playbackStart = Date.now();
       var targetMs = self._playbackStart + fi * FRAME_DUR_MS;
-      // Negative delay means frame is late — clamp to 0 (render immediately).
-      // Do NOT drop late frames: Broadway decodes slower than 25fps on TV so
-      // almost every frame would be late. We render at actual decode throughput
-      // rather than dropping most frames and showing 1fps.
-      var delay = Math.max(0, targetMs - Date.now());
+      var delay    = Math.max(0, targetMs - Date.now());
 
-      // buf arrives from a transferred ArrayBuffer — worker no longer owns it,
-      // so it is stable for the lifetime of this closure. No copy needed.
+      // buf is from a transferred ArrayBuffer — stable for this closure lifetime.
       var w = width, h = height;
 
-      setTimeout(function () {
-        if (self._stopped) return;
-        try {
-          // Reuse ImageData to avoid per-frame allocation.
-          if (!self._imgData || self._imgData.width !== w || self._imgData.height !== h) {
-            self._imgData = new ImageData(w, h);
+      if (self._useWebGL) {
+        // ── WebGL YUV path ──────────────────────────────────────────────────
+        // Lazy-init YUVCanvas at actual video dimensions (not display size).
+        // YUVCanvas creates its own WebGL context on a hidden canvas; we then
+        // blit that canvas to the display canvas via drawImage (GPU scaling).
+        if (!self._yuvRenderer || self._yuvCanvas.width !== w || self._yuvCanvas.height !== h) {
+          self._yuvCanvas          = document.createElement('canvas');
+          self._yuvCanvas.width    = w;
+          self._yuvCanvas.height   = h;
+          self._yuvRenderer        = new YUVCanvas({ canvas: self._yuvCanvas, width: w, height: h });
+          if (!self._yuvRenderer.isWebGL()) {
+            // WebGL context creation failed despite detection — skip this frame.
+            console.warn('[WasmDecoder] YUVCanvas WebGL init failed');
+            self._yuvRenderer = null;
+            return;
           }
-          self._imgData.data.set(buf);
-
-          // If display canvas matches decode dimensions: one putImageData, no scaling.
-          // Otherwise use offscreen canvas so drawImage handles GPU scaling.
-          if (self._canvas.width === w && self._canvas.height === h) {
-            self._ctx.putImageData(self._imgData, 0, 0);
-          } else {
-            if (self._offscreen.width !== w || self._offscreen.height !== h) {
-              self._offscreen.width  = w;
-              self._offscreen.height = h;
-            }
-            self._offCtx.putImageData(self._imgData, 0, 0);
-            self._ctx.drawImage(self._offscreen, 0, 0, self._canvas.width, self._canvas.height);
-          }
-        } catch (e) {
-          console.warn('[WasmDecoder] render error', e);
         }
-      }, Math.max(0, delay));
+
+        // Snapshot YUV plane views before setTimeout (all views into same stable buffer).
+        var yLen  = w * h;
+        var uvLen = (w >> 1) * (h >> 1);
+        var yData = buf.subarray(0, yLen);
+        var uData = buf.subarray(yLen, yLen + uvLen);
+        var vData = buf.subarray(yLen + uvLen, yLen + uvLen + uvLen);
+
+        setTimeout(function () {
+          if (self._stopped || !self._yuvRenderer) return;
+          try {
+            // drawNextOutputPicture({yData,uData,vData}) — first arg passed as `par`
+            // to drawNextOuptutPictureGL(par); par.yData/uData/vData are the planes.
+            self._yuvRenderer.drawNextOutputPicture({ yData: yData, uData: uData, vData: vData });
+            drawContain(self._ctx, self._yuvCanvas, w, h, self._canvas.width, self._canvas.height);
+          } catch (e) {
+            console.warn('[WasmDecoder] WebGL render error', e);
+          }
+        }, Math.max(0, delay));
+
+      } else {
+        // ── Software RGBA path (original) ───────────────────────────────────
+        setTimeout(function () {
+          if (self._stopped) return;
+          try {
+            if (!self._imgData || self._imgData.width !== w || self._imgData.height !== h) {
+              self._imgData = new ImageData(w, h);
+            }
+            self._imgData.data.set(buf);
+
+            if (self._canvas.width === w && self._canvas.height === h) {
+              self._ctx.putImageData(self._imgData, 0, 0);
+            } else {
+              if (self._offscreen.width !== w || self._offscreen.height !== h) {
+                self._offscreen.width  = w;
+                self._offscreen.height = h;
+              }
+              self._offCtx.putImageData(self._imgData, 0, 0);
+              drawContain(self._ctx, self._offscreen, w, h, self._canvas.width, self._canvas.height);
+            }
+          } catch (e) {
+            console.warn('[WasmDecoder] render error', e);
+          }
+        }, Math.max(0, delay));
+      }
     };
   };
 
   WasmDecoder.prototype.start = function (mpdUrl) {
     var self = this;
-    self._stopped     = false;
-    self._initFetched = false;
-    self._lastSegNum  = -1;
-    self._mpdUrl      = mpdUrl;
+    self._stopped            = false;
+    self._initFetched        = false;
+    self._lastSegNum         = -1;
+    self._mpdUrl             = mpdUrl;
+    self._firstFrameReported = false;
 
     self._createPlayer();
 

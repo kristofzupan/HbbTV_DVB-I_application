@@ -2,110 +2,41 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DVB-I Accessibility – Interpreter PiP</title>
+<title>DVB-I Accessibility</title>
   <link rel="stylesheet" href="css/style.css">
-  <style>
-    .decoder-toggle {
-      display: flex; align-items: center; gap: 12px;
-      background: #1a1a2e; border: 2px solid #e94560;
-      border-radius: 8px; padding: 10px 16px; margin-bottom: 12px;
-    }
-    .decoder-toggle label { color: #eee; font-weight: bold; margin: 0; }
-    .decoder-btn {
-      padding: 6px 16px; border-radius: 4px; border: 1px solid #555;
-      background: #2a2a3e; color: #aaa; cursor: pointer; font-size: 14px;
-    }
-    .decoder-btn.active { background: #e94560; color: #fff; border-color: #e94560; }
-    .decoder-status { font-size: 12px; color: #aaa; margin-left: auto; }
-    .decoder-status.wasm { color: #4caf50; }
-    #interpreterCanvas { width: 100%; height: 100%; display: none; background: #000; }
-  </style>
+  <script>
+    window.onerror = function (msg, src, line) {
+      var el = document.getElementById('dvbi-boot-status');
+      if (el) {
+        el.style.background = '#8b0000';
+        el.style.display = 'block';
+        el.innerHTML = '<b>Error:</b> ' + msg + ' (' + (src || '?').replace(/.*\//, '') + ':' + line + ')';
+      }
+      return false;
+    };
+  </script>
 </head>
 <body>
-  <header class="header">
-    <h1>DVB-I Accessibility Demo — Interpreter PiP</h1>
-    <p class="subtitle">Master's thesis: sign-language interpreter overlay via DVB-I</p>
-  </header>
+  <div id="dvbi-boot-status">Loading DVB-I accessibility app...</div>
 
-  <!-- Decoder mode toggle — the thesis demo switch -->
-  <div class="decoder-toggle">
-    <label>Interpreter decoder:</label>
-    <button id="btnNativeDecoder" class="decoder-btn" type="button">Native (hardware)</button>
-    <button id="btnWasmDecoder" class="decoder-btn active" type="button">Canvas mode (software path)</button>
-    <span id="decoderStatus" class="decoder-status">Using native &lt;video&gt; decoder</span>
+  <!-- Main video: fullscreen background -->
+  <video id="mainVideo" playsinline muted>
+    <track id="subtitleTrack" kind="subtitles" src="subtitles/sample.vtt" srclang="en" label="English" default>
+  </video>
+
+  <!-- Interpreter overlay: visible by default, bottom-right -->
+  <div id="interpreterOverlay" class="interpreter-overlay interpreter-position-br">
+    <video id="interpreterVideo" playsinline muted></video>
+    <canvas id="interpreterCanvas" width="960" height="720"></canvas>
   </div>
 
-  <main class="player-container" id="playerContainer">
-    <div class="video-wrapper main-video-wrapper" id="mainVideoWrapper">
-      <video id="mainVideo" class="video main-video" playsinline muted>
-        <source id="mainSource" src="" type="video/mp4">
-        <track id="subtitleTrack" kind="subtitles" src="subtitles/sample.vtt" srclang="en" label="English" default>
-        Your browser does not support the video tag.
-      </video>
-    </div>
-    <p class="interpreter-only-message" id="interpreterOnlyMessage" aria-live="polite">Main content is on the TV. Use the overlay and controls below.</p>
+  <div id="toast"></div>
 
-    <!-- Interpreter overlay: <video> (native) or <canvas> (WASM) -->
-    <div id="interpreterOverlay" class="interpreter-overlay interpreter-position-br interpreter-size-medium">
-      <video id="interpreterVideo" class="video interpreter-video" playsinline muted>
-        <source id="interpreterSource" src="" type="video/mp4">
-        Your browser does not support the video tag.
-      </video>
-      <canvas id="interpreterCanvas" width="960" height="540"></canvas>
-    </div>
-  </main>
+  <!-- Persistent hint bar -->
+  <div id="hintBar">RED=on/off &nbsp;|&nbsp; &#9664;&#9654;=move &nbsp;|&nbsp; &#9650;&#9660;=row &nbsp;|&nbsp; GREEN=bigger &nbsp;|&nbsp; YELLOW=smaller &nbsp;|&nbsp; BLUE=reset</div>
 
-  <section class="controls">
-    <div class="control-group">
-      <h2>Playback</h2>
-      <div class="button-row">
-        <button id="btnPlay" type="button" style="display:none">Play</button>
-        <button id="btnPause" type="button" style="display:none">Pause</button>
-        <button id="btnRestart" type="button" style="display:none">Restart</button>
-        <button id="btnFullscreen" type="button">Fullscreen</button>
-        <button id="btnUnmute" type="button">🔇 Unmute</button>
-      </div>
-      <label class="checkbox-label">
-        <input type="checkbox" id="subtitleToggle" checked>
-        Show subtitles
-      </label>
-      <p class="key-hint">1–6=position · S/M/L=size · C=subtitles · W=toggle canvas mode</p>
-    </div>
-
-    <div class="control-group">
-      <h2>Interpreter position</h2>
-      <div class="button-row" id="positionButtons" role="group" aria-label="Interpreter position">
-        <button type="button" data-position="tl">Top left</button>
-        <button type="button" data-position="tc">Top centre</button>
-        <button type="button" data-position="tr">Top right</button>
-        <button type="button" data-position="bl">Bottom left</button>
-        <button type="button" data-position="bc">Bottom centre</button>
-        <button type="button" data-position="br">Bottom right</button>
-      </div>
-    </div>
-
-    <div class="control-group">
-      <h2>Interpreter size</h2>
-      <div class="button-row" id="sizeButtons" role="group" aria-label="Interpreter size">
-        <button type="button" data-size="small">Small</button>
-        <button type="button" data-size="medium">Medium</button>
-        <button type="button" data-size="large">Large</button>
-      </div>
-    </div>
-
-    <div class="control-group sources">
-      <h2>Video sources</h2>
-      <p>When launched from DVB-I with <code>?main=...&amp;interpreter=...</code>, streams come from DVB-I automatically.</p>
-      <label>Main video URL: <input type="text" id="mainVideoUrl" placeholder="videos/main.mp4"></label>
-      <label>Interpreter video URL: <input type="text" id="interpreterVideoUrl" placeholder="videos/interpreter.mp4"></label>
-      <button id="btnApplySources" type="button">Apply URLs</button>
-    </div>
-  </section>
-
-  <footer class="footer">
-    <p>Master's thesis: DVB-I sign-language interpreter overlay with WebAssembly fallback decoder.</p>
-  </footer>
+  <!-- Error display -->
+  <div id="errorOverlay"></div>
 
   <script src="js/hbbtv-bridge.js"></script>
   <script src="js/dash.all.min.js"></script>
@@ -113,6 +44,7 @@
   <script src="js/broadway-yuvcanvas.js"></script>
   <script src="js/broadway-player-lib.js"></script>
   <script src="js/wasm-decoder.js"></script>
+  <script src="js/webcodecs-decoder.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

@@ -4,11 +4,13 @@
  * Run from repo root: node scripts/start-dvbi-reference-client.js
  *
  * The Reference Client backend is PHP; this script:
- * 1. Sets INSTALL_LOCATION in backend/configuration.php and frontend/configuration.js
- * 2. Starts php -S so you don't need Apache
+ * 1. Loads .env from repo root (BASE_URL, PORT)
+ * 2. Sets INSTALL_LOCATION in backend/configuration.php and frontend/configuration.js
+ * 3. Patches stream URLs in backend/servicelists/thesis.xml and hbbtv-app/js/app.js
+ * 4. Starts php -S so you don't need Apache
  *
  * Prerequisites: PHP (macOS: built-in or brew install php)
- * Optional: PORT=9080 BASE_URL=http://localhost:9080 (or your LAN IP for TV testing)
+ * .env overrides: BASE_URL=http://<your-ip>:9080  PORT=9080
  */
 
 const fs = require('fs');
@@ -17,6 +19,24 @@ const { spawn } = require('child_process');
 const os = require('os');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
+
+// ── Load .env (shell env vars take precedence) ────────────────────────────────
+function loadDotEnv() {
+  const envPath = path.join(REPO_ROOT, '.env');
+  if (!fs.existsSync(envPath)) return;
+  const lines = fs.readFileSync(envPath, 'utf8').split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq < 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const val = trimmed.slice(eq + 1).trim().replace(/^["']|["']$/g, '');
+    if (!(key in process.env)) process.env[key] = val;
+  }
+}
+loadDotEnv();
+
 const REF_CLIENT = path.join(REPO_ROOT, 'DVB-I-Reference-Client');
 const PORT = parseInt(process.env.PORT || '9080', 10);
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
@@ -34,6 +54,17 @@ function getLocalIp() {
     // Sandbox or permission may block networkInterfaces()
   }
   return null;
+}
+
+// Replace any http(s)://host:port prefix in a file with installLocation.
+function patchUrls(filePath, installLocation) {
+  if (!fs.existsSync(filePath)) return;
+  const content = fs.readFileSync(filePath, 'utf8');
+  const patched = content.replace(/https?:\/\/[\w.\-]+:\d+/g, installLocation);
+  if (patched !== content) {
+    fs.writeFileSync(filePath, patched, 'utf8');
+    console.log('Patched URLs in', path.relative(REPO_ROOT, filePath));
+  }
 }
 
 function main() {
@@ -73,6 +104,12 @@ var INCLUDE_NON_LCN_CHANNELS = false;
   fs.writeFileSync(frontendCfg, frontendContent, 'utf8');
   console.log('Configured INSTALL_LOCATION =', installLocation);
 
+  // Patch stream URLs in thesis service list and hbbtv-app fallback defaults
+  patchUrls(path.join(REF_CLIENT, 'backend', 'servicelists', 'thesis.xml'), installLocation);
+  patchUrls(path.join(REF_CLIENT, 'hbbtv-app', 'js', 'app.js'), installLocation);
+  patchUrls(path.join(REF_CLIENT, 'hbbtv-app', 'wrapper.html'), installLocation);
+  patchUrls(path.join(REF_CLIENT, 'frontend', 'android_apk', 'app', 'src', 'main', 'assets', 'appConfig.json'), installLocation);
+
   const servicelistsDir = path.join(REF_CLIENT, 'backend', 'servicelists');
   if (!fs.existsSync(servicelistsDir)) {
     fs.mkdirSync(servicelistsDir, { recursive: true });
@@ -91,7 +128,7 @@ var INCLUDE_NON_LCN_CHANNELS = false;
   console.log('  Backend (service list editor): ' + installLocation + '/backend/');
   console.log('  Frontend (HTML5 client):       ' + installLocation + '/frontend/android/player.html');
   if (lanIp && BASE_URL.includes('localhost')) {
-    console.log('  For TV on same Wi‑Fi use:       http://' + lanIp + ':' + PORT);
+    console.log('  For TV on same Wi-Fi use:       http://' + lanIp + ':' + PORT);
   }
   console.log('  Stop with Ctrl+C');
   console.log('');
