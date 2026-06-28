@@ -1,0 +1,13 @@
+<AccessibilityAttributes>
+ <SigningAttributes>
+  <Coding href="urn:dvb:metadata:cs:VideoCodecCS:2022:5.1.10"/>
+  <SignLanguage>gsg</SignLanguage>
+  <Closed>false</Closed>
+ </SigningAttributes>
+ <MagnificationUIAttributes>
+  <AppInformation>
+   <RequiredStandardVersion>urn:hbbtv:appinformation:standardversion:hbbtv:1.6.1</RequiredStandardVersion>
+  </AppInformation>
+  <Purpose href="urn:tva:metadata:cs:AccessibilityPurposeCS:2023:1.2"/>
+ </MagnificationUIAttributes>
+</AccessibilityAttributes>

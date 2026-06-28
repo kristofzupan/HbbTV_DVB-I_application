@@ -1,0 +1,5 @@
+# OS
+.DS_Store
+
+# Live stream chunks (generated at runtime)
+DVB-I-Reference-Client/stream/
