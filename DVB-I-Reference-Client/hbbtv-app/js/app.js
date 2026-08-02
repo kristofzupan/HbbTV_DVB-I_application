@@ -63,6 +63,11 @@
 
   var toastTimer = null;
 
+  // Seconds behind the live edge to hold the main picture, so the interpreter
+  // decoder has whole segments available at the time the main video is showing.
+  // Three 4 s segments; must stay well inside the manifest's 60 s window.
+  var LIVE_DELAY_SEC = 12;
+
   // ── URL params ─────────────────────────────────────────────────────────────
   function getUrlParams() {
     var params = {};
@@ -90,6 +95,21 @@
       var msg = (e && e.error && (e.error.message || JSON.stringify(e.error))) || 'dash.js error';
       showError('DASH error: ' + msg);
     });
+
+    // Hold playback further behind the live edge than dash.js would choose on
+    // its own. The software-decoded interpreter can only present segments that
+    // are already written to the manifest, so if the main picture plays closer
+    // to live than that, the overlay can never reach it — no amount of clock
+    // correction helps. A few seconds of extra latency in exchange for an
+    // interpreter that is actually aligned is the right trade here.
+    // (dash.js 4.4+ nests this under `delay`; the flat key covers older builds.)
+    try {
+      p.updateSettings({ streaming: {
+        delay:     { liveDelay: LIVE_DELAY_SEC },
+        liveDelay: LIVE_DELAY_SEC
+      }});
+    } catch (e) {}
+
     p.initialize(videoEl, url, autoplay);
     return p;
   }
@@ -149,7 +169,7 @@
         mainVideo.removeEventListener('playing', startWC);
         if (decoderMode !== 'webcodecs') { return; }
         if (currentInterpreterUrl && !wasmDecoder) {
-          wasmDecoder = new WebCodecsDecoder(interpreterCanvas);
+          wasmDecoder = new WebCodecsDecoder(interpreterCanvas, masterClock);
           wasmDecoder.start(currentInterpreterUrl);
         }
       };
@@ -204,7 +224,7 @@
         mainVideo.removeEventListener('playing', startCanvas);
         if (decoderMode !== 'canvas') { return; }
         if (currentInterpreterUrl && !wasmDecoder) {
-          wasmDecoder = new WasmDecoder(interpreterCanvas);
+          wasmDecoder = new WasmDecoder(interpreterCanvas, masterClock);
           wasmDecoder.onFirstFrame = function (w, h) { adaptToVideoRatio(w, h); };
           wasmDecoder.start(currentInterpreterUrl);
         }
@@ -227,6 +247,18 @@
     };
     if (!mainVideo.paused) { startNative(); }
     else { mainVideo.addEventListener('playing', startNative); }
+  }
+
+  // ── Master clock ───────────────────────────────────────────────────────────
+  // Position of the main video on the manifest's period timeline. When main and
+  // interpreter come from one manifest they share that timeline, so this is what
+  // the software decoder presents the signer against — the app-side equivalent
+  // of what MediaSynchroniser does on an HbbTV 2.0.4 terminal.
+  // Returns 0 when there is no main video to follow (interpreter-only mode, or
+  // playback has not started), which tells the decoder to pace itself instead.
+  function masterClock() {
+    if (interpreterOnlyMode || !mainVideo) { return 0; }
+    return mainVideo.currentTime || 0;
   }
 
   // ── Safe play ──────────────────────────────────────────────────────────────
@@ -296,13 +328,13 @@
     stopInterpreterDecoder();
 
     if (decoderMode === 'canvas') {
-      wasmDecoder = new WasmDecoder(interpreterCanvas);
+      wasmDecoder = new WasmDecoder(interpreterCanvas, masterClock);
       wasmDecoder.onFirstFrame = function (w, h) { adaptToVideoRatio(w, h); };
       wasmDecoder.start(currentInterpreterUrl);
 
     } else if (decoderMode === 'webcodecs') {
       if (window.WebCodecsDecoder) {
-        wasmDecoder = new WebCodecsDecoder(interpreterCanvas);
+        wasmDecoder = new WebCodecsDecoder(interpreterCanvas, masterClock);
         wasmDecoder.start(currentInterpreterUrl);
       }
 

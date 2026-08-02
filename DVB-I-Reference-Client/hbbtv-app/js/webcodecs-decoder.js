@@ -20,6 +20,45 @@
 
   // ── MPD parser ──────────────────────────────────────────────────────────────
 
+  function isVideoAdaptationSet(a) {
+    if ((a.getAttribute('contentType') || '').indexOf('video') !== -1) return true;
+    if ((a.getAttribute('mimeType') || '').indexOf('video') !== -1) return true;
+    var rep = a.querySelector('Representation');
+    return !!(rep && (rep.getAttribute('mimeType') || '').indexOf('video') !== -1);
+  }
+
+  function hasSignRole(a) {
+    // DASH signals sign language on the AdaptationSet, either as a Role or an
+    // Accessibility descriptor with value "sign" (role scheme of ISO/IEC 23009-1).
+    // Packagers differ on which of the two they emit, so accept both.
+    var names = ['Role', 'Accessibility'], i, j, els;
+    for (i = 0; i < names.length; i++) {
+      els = a.getElementsByTagName(names[i]);
+      for (j = 0; j < els.length; j++) {
+        if (els[j].getAttribute('value') === 'sign') return true;
+      }
+    }
+    return false;
+  }
+
+  // The interpreter and the main picture may share one manifest, which is what
+  // keeps them on a common presentation timeline. Pick the signer explicitly by
+  // its Role rather than by position: in a combined manifest the first video
+  // AdaptationSet is the full-size main picture, and decoding that to fill a
+  // small overlay wastes a decoder. Falls back to the first video set so
+  // single-stream manifests still work.
+  function selectSignAdaptationSet(doc) {
+    var sets = doc.getElementsByTagName('AdaptationSet');
+    var firstVideo = null, i, a;
+    for (i = 0; i < sets.length; i++) {
+      a = sets[i];
+      if (!isVideoAdaptationSet(a)) continue;
+      if (!firstVideo) firstVideo = a;
+      if (hasSignRole(a)) return a;
+    }
+    return firstVideo || sets[0] || null;
+  }
+
   function parseMPD(mpdText, mpdUrl) {
     var base = mpdUrl.substring(0, mpdUrl.lastIndexOf('/') + 1);
     var parser = new DOMParser();
@@ -28,13 +67,7 @@
     var mpdEl  = doc.querySelector('MPD');
     var isLive = (mpdEl && mpdEl.getAttribute('type') === 'dynamic');
 
-    var adaptations = doc.querySelectorAll('AdaptationSet');
-    var videoAdapt  = null;
-    adaptations.forEach(function (a) {
-      if (!videoAdapt && (a.getAttribute('mimeType') || '').indexOf('video') !== -1)
-        videoAdapt = a;
-    });
-    if (!videoAdapt) videoAdapt = adaptations[0];
+    var videoAdapt = selectSignAdaptationSet(doc);
 
     var rep = videoAdapt && videoAdapt.querySelector('Representation');
     if (!rep) throw new Error('WebCodecsDecoder: no Representation in MPD');
@@ -60,15 +93,24 @@
         .replace('$Number$', num);
     }
 
-    var segCount;
+    // Presentation start of each segment, in seconds on the period timeline.
+    // This is what allows the overlay to be placed against the main video's
+    // clock: when both come from one manifest they share this timeline, so a
+    // signer frame can be matched to the main frame it belongs with.
+    var segCount, segStarts = [];
     if (isLive) {
       var timeline = seg.querySelector('SegmentTimeline');
       if (timeline) {
-        var count = 0;
-        timeline.querySelectorAll('S').forEach(function (s) {
-          count += parseInt(s.getAttribute('r') || '0', 10) + 1;
-        });
-        segCount = count || 10;
+        var sList = timeline.getElementsByTagName('S');
+        var ticks = 0;
+        for (var si = 0; si < sList.length; si++) {
+          var tAttr = sList[si].getAttribute('t');
+          var d     = parseInt(sList[si].getAttribute('d') || '0', 10);
+          var r     = parseInt(sList[si].getAttribute('r') || '0', 10);
+          if (tAttr !== null) ticks = parseInt(tAttr, 10);
+          for (var k = 0; k <= r; k++) { segStarts.push(ticks / timescale); ticks += d; }
+        }
+        segCount = segStarts.length || 10;
       } else {
         segCount = 10;
       }
@@ -85,9 +127,15 @@
     var segs = [];
     for (var i = 0; i < segCount; i++) segs.push(resolve(mediaAttr, startNum + i));
 
+    // On-demand manifests have no SegmentTimeline; segments are evenly spaced.
+    if (!segStarts.length) {
+      for (var j = 0; j < segCount; j++) segStarts.push(j * segDur / timescale);
+    }
+
     return {
       initUrl:     resolve(initAttr, startNum),
       segmentUrls: segs,
+      segStartSec: segStarts,
       segDurSec:   segDur / timescale,
       startNumber: startNum,
       isLive:      isLive,
@@ -193,7 +241,23 @@
   var FRAME_DUR_US  = 40000; // microseconds — EncodedVideoChunk timestamps
   var LIVE_LAG_SEGS = 3;
 
-  function WebCodecsDecoder(canvas) {
+  // How far ahead of the master clock the decoder may run. Early frames simply
+  // wait in the display queue; running much further ahead only wastes work.
+  var LEAD_SEGS = 1;
+
+  // How far the presented signer frame may sit from the master clock before we
+  // reposition rather than let the queue drain: one segment.
+  var RESYNC_TOLERANCE_SEC = 4;
+
+  /**
+   * @param canvas       destination canvas for signer frames
+   * @param masterClock  optional () => seconds on the manifest's period
+   *                     timeline, normally the main video's currentTime. When
+   *                     supplied, frames are presented against this clock
+   *                     instead of the decoder's own wall clock, which is what
+   *                     keeps the signer aligned with the picture it belongs to.
+   */
+  function WebCodecsDecoder(canvas, masterClock) {
     this._canvas        = canvas;
     this._ctx           = canvas.getContext('2d');
     this._decoder       = null;
@@ -203,12 +267,83 @@
     this._mpdUrl        = null;
     this._codec         = 'avc1.42001f';
     this._avcc          = null;
-    this._nextTsUs      = 0;   // monotonic timestamp fed to EncodedVideoChunk
+    this._nextTsUs      = 0;   // fallback timestamp when no segment time is known
+    this._segPtsUs      = null; // presentation time of the segment being decoded
     this._displayIdx    = 0;   // frame counter for setTimeout display pacing
     this._decodingStart = null;
     this._targetLagSegs = 0;
     this._decoderGen    = 0;
+    this._masterClock   = typeof masterClock === 'function' ? masterClock : null;
+    this._queue         = [];   // {ptsSec, frame} awaiting their moment
+    this._rafId         = null;
+    this._loggedOffset  = false;
   }
+
+  // A master clock is only usable if it lands inside the manifest's segment
+  // window. If it does not, the two are on different timelines and following it
+  // would reposition on every refresh, restarting the decoder each time.
+  function masterInRange(masterT, parsed) {
+    if (masterT === null || !parsed.segStartSec || !parsed.segStartSec.length) return false;
+    var first = parsed.segStartSec[0] - parsed.segDurSec;
+    var last  = parsed.segStartSec[parsed.segStartSec.length - 1] + 2 * parsed.segDurSec;
+    return masterT >= first && masterT <= last;
+  }
+
+  // Master time, or null when there is no usable clock (interpreter-only mode,
+  // or the main video has not started yet). Callers fall back to wall clock.
+  WebCodecsDecoder.prototype._masterTime = function () {
+    if (!this._masterClock) return null;
+    var t = this._masterClock();
+    return (typeof t === 'number' && isFinite(t) && t > 0) ? t : null;
+  };
+
+  // Presentation loop: draw the newest frame that is due, discard what is past,
+  // hold what is early. Runs only while a master clock is driving playback.
+  WebCodecsDecoder.prototype._startPresenting = function () {
+    var self = this;
+    if (self._rafId !== null) return;
+
+    function tick() {
+      self._rafId = null;
+      if (self._stopped) return;
+
+      var now = self._masterTime();
+      if (now !== null) {
+        var due = null;
+        while (self._queue.length && self._queue[0].ptsSec <= now) {
+          if (due) due.frame.close();          // superseded, release GPU memory
+          due = self._queue.shift();
+        }
+        if (due) {
+          if (!self._loggedOffset) {
+            console.log('[WebCodecsDecoder] first synced frame: master', now.toFixed(2),
+                        's, signer pts', due.ptsSec.toFixed(2), 's, offset',
+                        (now - due.ptsSec).toFixed(2), 's');
+            self._loggedOffset = true;
+          }
+          try {
+            self._ctx.drawImage(due.frame, 0, 0, self._canvas.width, self._canvas.height);
+          } catch (e) {}
+          due.frame.close();
+        }
+        // Queue is entirely in the past or entirely far ahead: we are looking at
+        // the wrong part of the stream, so drop it and let segment selection
+        // reposition on the next manifest refresh.
+        if (self._queue.length && self._queue[0].ptsSec > now + RESYNC_TOLERANCE_SEC) {
+          self._flushQueue();
+        }
+      }
+      self._rafId = requestAnimationFrame(tick);
+    }
+    self._rafId = requestAnimationFrame(tick);
+  };
+
+  WebCodecsDecoder.prototype._flushQueue = function () {
+    for (var i = 0; i < this._queue.length; i++) {
+      try { this._queue[i].frame.close(); } catch (e) {}
+    }
+    this._queue.length = 0;
+  };
 
   WebCodecsDecoder.prototype._createDecoder = function () {
     var self = this;
@@ -227,7 +362,16 @@
       output: function (frame) {
         if (self._stopped || self._decoderGen !== myGen) { frame.close(); return; }
 
-        // Schedule display at the correct wall-clock time.
+        // With a master clock, hold the frame until the main video reaches its
+        // presentation time. The timestamp came from the manifest, so this is a
+        // real alignment rather than a guess at how long decoding took.
+        if (self._masterTime() !== null) {
+          self._queue.push({ ptsSec: frame.timestamp / 1e6, frame: frame });
+          self._startPresenting();
+          return;
+        }
+
+        // No master clock: pace off the decoder's own wall clock, as before.
         // VideoFrame is GPU-resident; drawImage is a GPU blit — no pixel data on CPU.
         var fi = self._displayIdx++;
         if (self._decodingStart === null) self._decodingStart = Date.now();
@@ -308,8 +452,51 @@
 
           var urls     = parsed.segmentUrls;
           var startIdx = 0;
+          var masterT  = self._masterTime();
 
-          if (parsed.isLive) {
+          if (masterT !== null && !masterInRange(masterT, parsed) && !self._warnedClock) {
+            self._warnedClock = true;
+            console.warn('[WebCodecsDecoder] master clock', masterT.toFixed(2),
+                         's is outside the manifest window',
+                         parsed.segStartSec[0].toFixed(2), '-',
+                         (parsed.segStartSec[parsed.segStartSec.length - 1] + parsed.segDurSec).toFixed(2),
+                         's — different timelines, falling back to live-edge pacing');
+          }
+
+          if (parsed.isLive && masterInRange(masterT, parsed)) {
+            // Follow the main video, not the live edge. The main player sits a
+            // few seconds behind live; chasing the edge here is what put the
+            // signer ahead of the picture.
+            var wantIdx = 0;
+            for (var wi = 0; wi < parsed.segStartSec.length; wi++) {
+              if (parsed.segStartSec[wi] <= masterT) wantIdx = wi;
+            }
+
+            var contIdx = (self._lastSegNum < 0)
+              ? -1 : (self._lastSegNum + 1 - parsed.startNumber);
+
+            if (contIdx < 0 || contIdx < wantIdx - 1 || contIdx > wantIdx + 2) {
+              // Never started, fell out of the window, or wildly ahead: jump.
+              startIdx = wantIdx;
+              if (self._lastSegNum >= 0) {
+                console.log('[WebCodecsDecoder] repositioning to master clock',
+                            masterT.toFixed(2), 's — segment idx', wantIdx);
+                self._flushQueue();
+                self._createDecoder();
+                self._configure();
+              }
+            } else if (contIdx >= urls.length || contIdx > wantIdx + LEAD_SEGS) {
+              // Caught up with the live edge, or far enough ahead of the master
+              // clock. Wait for more content rather than re-decoding.
+              setTimeout(function () {
+                if (!self._stopped) self._fetchMPDAndDecode();
+              }, Math.max(250, parsed.segDurSec * 250));
+              return;
+            } else {
+              startIdx = contIdx;   // in step with the master clock, carry on
+            }
+
+          } else if (parsed.isLive) {
             var liveEdge = parsed.startNumber + urls.length - 1;
             if (self._targetLagSegs === 0) self._targetLagSegs = LIVE_LAG_SEGS;
 
@@ -331,7 +518,9 @@
           }
 
           var pending = urls.slice(startIdx, startIdx + 1);
-          return self._decodeSegments(pending, parsed.segDurSec, parsed.startNumber + startIdx)
+          return self._decodeSegments(pending, parsed.segDurSec,
+                                      parsed.startNumber + startIdx,
+                                      parsed.segStartSec[startIdx])
             .then(function () {
               if (!self._stopped && parsed.isLive) self._fetchMPDAndDecode();
             });
@@ -343,13 +532,18 @@
       });
   };
 
-  WebCodecsDecoder.prototype._decodeSegments = function (urls, segDurSec, startSegNum) {
+  WebCodecsDecoder.prototype._decodeSegments = function (urls, segDurSec, startSegNum, segPtsSec) {
     var self = this;
     if (self._stopped || urls.length === 0) return Promise.resolve();
 
     var url    = urls[0];
     var segNum = startSegNum;
     var rest   = urls.slice(1);
+    // Presentation time of this segment on the period timeline, if the manifest
+    // gave us one. Frames inherit it so they can be matched to the main video.
+    var baseUs = (typeof segPtsSec === 'number' && isFinite(segPtsSec))
+      ? Math.round(segPtsSec * 1e6) : null;
+    var nextPts = (segPtsSec == null) ? null : segPtsSec + segDurSec;
 
     return fetch(url)
       .then(function (r) {
@@ -362,6 +556,7 @@
         console.log('[WebCodecsDecoder] seg', segNum, '— NALs:', nals.length,
                     'bytes:', buf.byteLength);
         self._lastSegNum = segNum;
+        var frameInSeg = 0;
 
         nals.forEach(function (nal) {
           if (self._stopped || !self._decoder) return;
@@ -371,8 +566,16 @@
           if (nalType === 6) return;    // skip SEI — no picture, no timestamp needed
           if (nalType !== 1 && nalType !== 5) return; // only picture NALs
 
-          var ts = self._nextTsUs;
-          self._nextTsUs += FRAME_DUR_US;
+          // Baseline profile has no B-frames, so decode order is presentation
+          // order and frames can simply be counted off the segment start.
+          var ts;
+          if (baseUs !== null) {
+            ts = baseUs + frameInSeg * FRAME_DUR_US;
+            frameInSeg++;
+          } else {
+            ts = self._nextTsUs;
+            self._nextTsUs += FRAME_DUR_US;
+          }
 
           try {
             self._decoder.decode(new EncodedVideoChunk({
@@ -391,16 +594,18 @@
         });
       })
       .then(function () {
-        return self._decodeSegments(rest, segDurSec, segNum + 1);
+        return self._decodeSegments(rest, segDurSec, segNum + 1, nextPts);
       })
       .catch(function (e) {
         console.warn('[WebCodecsDecoder] skip segment', segNum, e.message);
-        return self._decodeSegments(rest, segDurSec, segNum + 1);
+        return self._decodeSegments(rest, segDurSec, segNum + 1, nextPts);
       });
   };
 
   WebCodecsDecoder.prototype.stop = function () {
     this._stopped = true;
+    if (this._rafId !== null) { cancelAnimationFrame(this._rafId); this._rafId = null; }
+    this._flushQueue();
     if (this._decoder) {
       try { this._decoder.close(); } catch (e) {}
       this._decoder = null;

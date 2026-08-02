@@ -25,7 +25,7 @@ header("Content-Type: application/vnd.dvb.ait+xml;charset=utf-8");
 $org_id = 1001;
 $app_id = 1;
 
-$interpreter_url = $install_location . "/stream/live/interpreter/stream.mpd";
+$interpreter_url = $install_location . "/stream/live/combined/stream.mpd";
 $url_base = $install_location . "/hbbtv-app/";
 $app_location = "index.html?interpreter=" . $interpreter_url;
 
