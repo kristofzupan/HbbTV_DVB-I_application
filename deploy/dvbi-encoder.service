@@ -1,0 +1,25 @@
+# Runs the combined DASH encoder as a supervised service.
+#
+# Install:
+#   sudo cp deploy/dvbi-encoder.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now dvbi-encoder
+#   systemctl status dvbi-encoder
+#
+# Restart=always matters: ffmpeg runs with -remove_at_exit, so when it stops it
+# deletes every segment and the channel goes black with nothing to bring it back.
+
+[Unit]
+Description=DVB-I combined DASH encoder (main picture + sign language)
+After=network.target
+
+[Service]
+Type=simple
+User=administrator
+WorkingDirectory=/srv/dvbi/HbbTV_DVB-I_application
+ExecStart=/bin/sh ffmpeg_stream_commands/combined
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
