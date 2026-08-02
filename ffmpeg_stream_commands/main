@@ -1,1 +1,18 @@
-ffmpeg -stream_loop -1 -fflags +genpts -re -i "/Users/kristof/Desktop/Master's thesis/HbbTV_DVB-I_application/video_content/main.mp4" -c:v libx264 -profile:v high -level 4.0 -preset veryfast -b:v 3000k -maxrate 3300k -bufsize 6000k -g 100 -keyint_min 100 -sc_threshold 0 -c:a aac -b:a 128k -ar 48000 -f dash -seg_duration 4 -window_size 15 -use_template 1 -use_timeline 1 -utc_timing_url "https://time.akamai.com/?iso" -remove_at_exit 1 "/Users/kristof/Desktop/Master's thesis/HbbTV_DVB-I_application/DVB-I-Reference-Client/stream/live/main/stream.mpd"
+#!/bin/sh
+# Main picture only, as its own DASH stream.
+# Superseded by ffmpeg_stream_commands/combined for normal use; kept so the
+# original two-manifest arrangement stays reproducible for comparison.
+set -e
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+OUT="$ROOT/DVB-I-Reference-Client/stream/live/main"
+mkdir -p "$OUT"
+
+exec ffmpeg -stream_loop -1 -fflags +genpts -re -i "$ROOT/video_content/main.mp4" \
+  -c:v libx264 -profile:v high -level 4.0 -preset veryfast \
+  -b:v 3000k -maxrate 3300k -bufsize 6000k \
+  -g 100 -keyint_min 100 -sc_threshold 0 \
+  -c:a aac -b:a 128k -ar 48000 \
+  -f dash -seg_duration 4 -window_size 15 -use_template 1 -use_timeline 1 \
+  -utc_timing_url "https://time.akamai.com/?iso" \
+  -remove_at_exit 1 "$OUT/stream.mpd"

@@ -1,1 +1,20 @@
-ffmpeg -stream_loop -1 -fflags +genpts -re -i "/Users/kristof/Desktop/Master's thesis/HbbTV_DVB-I_application/video_content/interpreter.mp4" -c:v libx264 -profile:v baseline -level 3.1 -preset veryfast -vf "crop=1080:1080:420:0,scale=480:480,fps=25" -r 25 -b:v 800k -maxrate 900k -bufsize 1600k -an -f dash -seg_duration 4 -g 100 -keyint_min 100 -sc_threshold 0 -window_size 15 -use_template 1 -use_timeline 1 -utc_timing_url "https://time.akamai.com/?iso" -remove_at_exit 1 "/Users/kristof/Desktop/Master's thesis/HbbTV_DVB-I_application/DVB-I-Reference-Client/stream/live/interpreter/stream.mpd"
+#!/bin/sh
+# Interpreter only, as its own DASH stream.
+# Superseded by ffmpeg_stream_commands/combined for normal use; kept so the
+# original two-manifest arrangement stays reproducible for comparison. Started
+# separately from main/, it has its own availabilityStartTime and therefore no
+# shared timeline — which is the problem the combined encoder exists to remove.
+set -e
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+OUT="$ROOT/DVB-I-Reference-Client/stream/live/interpreter"
+mkdir -p "$OUT"
+
+exec ffmpeg -stream_loop -1 -fflags +genpts -re -i "$ROOT/video_content/interpreter.mp4" \
+  -c:v libx264 -profile:v baseline -level 3.1 -preset veryfast \
+  -vf "crop=1080:1080:420:0,scale=480:480,fps=25" -r 25 \
+  -b:v 800k -maxrate 900k -bufsize 1600k -an \
+  -f dash -seg_duration 4 -g 100 -keyint_min 100 -sc_threshold 0 \
+  -window_size 15 -use_template 1 -use_timeline 1 \
+  -utc_timing_url "https://time.akamai.com/?iso" \
+  -remove_at_exit 1 "$OUT/stream.mpd"
