@@ -498,7 +498,16 @@ public class MainActivity extends AppCompatActivity implements Observer {
                 }
                 return true;
             }
-            else {
+            else if (
+                    keyCode == KeyEvent.KEYCODE_PROG_RED ||
+                    keyCode == KeyEvent.KEYCODE_PROG_GREEN ||
+                    keyCode == KeyEvent.KEYCODE_PROG_YELLOW ||
+                    keyCode == KeyEvent.KEYCODE_PROG_BLUE) {
+                if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                    runJavascript("javascript:document.dispatchEvent(new KeyboardEvent('keydown',{keyCode:'" + keyCode + "'}));\n");
+                }
+                return true;
+            } else {
                 super.dispatchKeyEvent(event);
                 return true;
             }

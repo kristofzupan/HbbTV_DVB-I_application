@@ -4,5 +4,5 @@
 // see also frontend/configuration.js
 // (set by scripts/start-dvbi-reference-client.js)
 //
-$install_location = "http://192.168.1.118:9080";
+$install_location = "http://192.168.1.117:9080";
 ?>

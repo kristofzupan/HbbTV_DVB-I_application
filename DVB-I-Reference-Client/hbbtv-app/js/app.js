@@ -102,8 +102,8 @@
   // ── Source initialisation ──────────────────────────────────────────────────
   function initSources() {
     var urlParams = getUrlParams();
-    var mainUrl   = urlParams.main        || 'http://192.168.1.118:9080/stream/live/main/stream.mpd';
-    var interpUrl = urlParams.interpreter || 'http://192.168.1.118:9080/stream/live/interpreter/stream.mpd';
+    var mainUrl   = urlParams.main        || 'http://192.168.1.117:9080/stream/live/main/stream.mpd';
+    var interpUrl = urlParams.interpreter || 'http://192.168.1.117:9080/stream/live/interpreter/stream.mpd';
 
     interpreterOnlyMode   = !!(urlParams.interpreter && !urlParams.main);
     currentMainUrl        = mainUrl;

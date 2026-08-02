@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ServiceList xmlns="urn:dvb:metadata:servicediscovery:2024" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:tva="urn:tva:metadata:2024" xmlns:dvbi-types="urn:dvb:metadata:servicediscovery-types:2023" xsi:schemaLocation="urn:dvb:metadata:servicediscovery:2024 schemas/dvbi_v6.0.xsd" xml:lang="en" id="thesis-accessibility" version="4">
+  <Name>Thesis accessibility list</Name>
+  <ProviderName>Thesis</ProviderName>
+  <LCNTableList>
+    <LCNTable>
+      <LCN channelNumber="1" serviceRef="tag:thesis,2026:accessibility1"/>
+      <LCN channelNumber="2" serviceRef="tag:thesis,2026:accessibility2"/>
+      <LCN channelNumber="3" serviceRef="tag:thesis,2026:accessibility3"/>
+    </LCNTable>
+  </LCNTableList>
+
+  <!-- Channel 1: VOD only (no interpreter) -->
+  <Service version="1">
+    <UniqueIdentifier>tag:thesis,2026:accessibility1</UniqueIdentifier>
+    <ServiceInstance priority="1">
+      <DASHDeliveryParameters>
+        <UriBasedLocation contentType="application/dash+xml">
+          <dvbi-types:URI>http://192.168.1.117:9080/stream/test_stream_seja.mpd</dvbi-types:URI>
+        </UriBasedLocation>
+      </DASHDeliveryParameters>
+    </ServiceInstance>
+    <ServiceName>VOD Channel</ServiceName>
+    <ProviderName>Thesis</ProviderName>
+  </Service>
+
+  <!-- Channel 2: Live only (no interpreter) -->
+  <Service version="1">
+    <UniqueIdentifier>tag:thesis,2026:accessibility2</UniqueIdentifier>
+    <ServiceInstance priority="1">
+      <DASHDeliveryParameters>
+        <UriBasedLocation contentType="application/dash+xml">
+          <dvbi-types:URI>http://192.168.1.117:9080/stream/live/main/stream.mpd</dvbi-types:URI>
+        </UriBasedLocation>
+      </DASHDeliveryParameters>
+    </ServiceInstance>
+    <ServiceName>Live Channel</ServiceName>
+    <ProviderName>Thesis</ProviderName>
+  </Service>
+
+  <!-- Channel 3: Accessibility channel — HbbTV app with main + interpreter via DVB-I -->
+  <Service version="1">
+    <UniqueIdentifier>tag:thesis,2026:accessibility3</UniqueIdentifier>
+    <ServiceInstance priority="1">
+      <!-- Linked app, HbbTV terminal path.
+           Type 1.1 "app with media in parallel": the terminal presents the main stream
+           from DASHDeliveryParameters below and starts this app alongside it, so the app
+           only draws the interpreter overlay. Per A177 table 7 a MediaUri declared as
+           application/vnd.dvb.ait+xml must resolve to an XML AIT, not to the app page.
+
+           AccessibilityAttributes belongs inside RelatedMaterial (A177 clause 4.5.3 and
+           figure 2a), not in ContentAttributes: it describes the access service that this
+           linked application provides. Closed=true because the viewer switches the signer
+           on and off through the app rather than it being burnt into the video. -->
+      <RelatedMaterial>
+        <tva:HowRelated href="urn:dvb:metadata:cs:LinkedApplicationCS:2019:1.1"/>
+        <tva:MediaLocator>
+          <tva:MediaUri contentType="application/vnd.dvb.ait+xml">http://192.168.1.117:9080/hbbtv-app/aitx.php</tva:MediaUri>
+        </tva:MediaLocator>
+        <tva:AccessibilityAttributes>
+          <tva:SigningAttributes>
+            <tva:AppInformation>
+              <!-- HbbTV 2.0.4 = TS 102 796 v1.7.1; required for the Accessibility Framework
+                   (inVisionSigning user preference, TS 102 796 clause 15.3.9). -->
+              <tva:RequiredStandardVersion>urn:hbbtv:appinformation:standardversion:hbbtv:1.7.1</tva:RequiredStandardVersion>
+            </tva:AppInformation>
+            <tva:Coding href="urn:dvb:metadata:cs:VideoCodecCS:2022:1.4.4"/>
+            <tva:SignLanguage>ysl</tva:SignLanguage><!-- verify: ISO 639-3 code for the sign language actually used -->
+            <tva:Closed>true</tva:Closed>
+          </tva:SigningAttributes>
+        </tva:AccessibilityAttributes>
+      </RelatedMaterial>
+      <!-- Linked app, HTML5 / Android DVB-I client path.
+           Type 1.2 "app controlling media presentation": the client starts no media and
+           the app plays both streams itself. frontend/android/js/channel.js only launches
+           type 1.2 apps, and only when contentType is text/xml or application/xhtml+xml,
+           so this entry is what makes the app launch on the reference client today. -->
+      <RelatedMaterial>
+        <tva:HowRelated href="urn:dvb:metadata:cs:LinkedApplicationCS:2019:1.2"/>
+        <tva:MediaLocator>
+          <tva:MediaUri contentType="application/xhtml+xml">http://192.168.1.117:9080/hbbtv-app/index.html?main=http://192.168.1.117:9080/stream/live/main/stream.mpd&amp;interpreter=http://192.168.1.117:9080/stream/live/interpreter/stream.mpd</tva:MediaUri>
+        </tva:MediaLocator>
+        <tva:AccessibilityAttributes>
+          <tva:SigningAttributes>
+            <tva:AppInformation>
+              <tva:RequiredStandardVersion>urn:hbbtv:appinformation:standardversion:hbbtv:1.7.1</tva:RequiredStandardVersion>
+            </tva:AppInformation>
+            <tva:Coding href="urn:dvb:metadata:cs:VideoCodecCS:2022:1.4.4"/>
+            <tva:SignLanguage>ysl</tva:SignLanguage>
+            <tva:Closed>true</tva:Closed>
+          </tva:SigningAttributes>
+        </tva:AccessibilityAttributes>
+      </RelatedMaterial>
+      <!-- Main stream — played by the terminal on the type 1.1 path, and by a plain DVB-I
+           client with no linked application support. -->
+      <DASHDeliveryParameters>
+        <UriBasedLocation contentType="application/dash+xml">
+          <dvbi-types:URI>http://192.168.1.117:9080/stream/live/main/stream.mpd</dvbi-types:URI>
+        </UriBasedLocation>
+      </DASHDeliveryParameters>
+    </ServiceInstance>
+    <ServiceName>Accessibility Channel</ServiceName>
+    <ProviderName>Thesis</ProviderName>
+  </Service>
+
+</ServiceList>
