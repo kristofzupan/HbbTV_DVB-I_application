@@ -167,6 +167,18 @@
     if (videoCanvasRafId) { cancelAnimationFrame(videoCanvasRafId); videoCanvasRafId = null; }
   }
 
+  // Draw a source into the canvas preserving aspect ratio (letterbox/pillarbox).
+  // WasmDecoder has its own copy of this for its YUV output; keeping one here
+  // rather than reaching into that module's scope is what stops the two from
+  // drifting apart — and reaching into it was a ReferenceError, since only the
+  // decoder constructor is exported.
+  function drawContain(ctx, src, srcW, srcH, dstW, dstH) {
+    var scale = Math.min(dstW / srcW, dstH / srcH);
+    var w = srcW * scale, h = srcH * scale;
+    ctx.clearRect(0, 0, dstW, dstH);
+    ctx.drawImage(src, ((dstW - w) / 2) | 0, ((dstH - h) / 2) | 0, w, h);
+  }
+
   function applyDecoderMode(mode) {
     decoderMode = mode;
 
@@ -211,8 +223,6 @@
         if (decoderMode !== 'video-canvas' || !currentInterpreterUrl) { return; }
         interpreterDashPlayer = createDashPlayer(interpreterVideo, currentInterpreterUrl, true);
         var ctx = interpreterCanvas.getContext('2d');
-        var cw  = interpreterCanvas.width;
-        var ch  = interpreterCanvas.height;
         var fallbackT = setTimeout(function () {
           if (decoderMode === 'video-canvas' && interpreterVideo.videoWidth === 0) {
             applyDecoderMode('canvas');
@@ -222,7 +232,11 @@
           if (decoderMode !== 'video-canvas') { return; }
           if (interpreterVideo.readyState >= 2 && interpreterVideo.videoWidth > 0) {
             clearTimeout(fallbackT);
-            ctx.drawImage(interpreterVideo, 0, 0, cw, ch);
+            // Canvas dimensions are re-read each frame: adaptToVideoRatio resizes
+            // the buffer once the stream's real dimensions are known.
+            drawContain(ctx, interpreterVideo,
+              interpreterVideo.videoWidth, interpreterVideo.videoHeight,
+              interpreterCanvas.width, interpreterCanvas.height);
           }
           videoCanvasRafId = requestAnimationFrame(rafLoop);
         }
@@ -525,13 +539,12 @@
   var bootEl = document.getElementById('dvbi-boot-status');
   if (bootEl) { bootEl.style.display = 'none'; }
 
-  // Apply initial size (no CSS class — use inline style)
-  applySize();
-
-  initSources();
-
-  // ── Capability detection + auto-select best decoder ───────────────────────
-  (function () {
+  // ── Capability detection ──────────────────────────────────────────────────
+  // Resolves to the decoder mode to use. Detection has to finish before the
+  // first decoder starts: starting one and switching a moment later spins up a
+  // Broadway worker and a WASM instance only to tear them down, which on TV
+  // hardware is far from free.
+  function detectDecoderMode() {
     var wcSupported   = typeof VideoDecoder !== 'undefined';
     var wasmSupported = typeof WebAssembly  !== 'undefined';
     var mseSupported  = (function () {
@@ -550,14 +563,23 @@
       showError('MSE not supported — DASH streams cannot play. HbbTV 2.0 required for DASH.');
     }
 
-    if (wcSupported && window.WebCodecsDecoder) {
-      WebCodecsDecoder.isSupported('avc1.42001f').then(function (ok) {
-        if (ok) {
-          console.log('[Caps] WebCodecs H.264 OK — using webcodecs mode');
-          applyDecoderMode('webcodecs');
-        }
-      });
+    if (!wcSupported || !window.WebCodecsDecoder) {
+      return Promise.resolve('canvas');
     }
-  })();
+    return WebCodecsDecoder.isSupported('avc1.42001f')
+      .then(function (ok) {
+        if (ok) { console.log('[Caps] WebCodecs H.264 OK — using webcodecs mode'); }
+        return ok ? 'webcodecs' : 'canvas';
+      })
+      .catch(function () { return 'canvas'; });
+  }
+
+  // Apply initial size (no CSS class — use inline style)
+  applySize();
+
+  detectDecoderMode().then(function (mode) {
+    decoderMode = mode;
+    initSources();
+  });
 
 })();
