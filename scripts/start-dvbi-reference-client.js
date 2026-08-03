@@ -11,6 +11,11 @@
  *
  * Prerequisites: PHP (macOS: built-in or brew install php)
  * .env overrides: BASE_URL=http://<your-ip>:9080  PORT=9080
+ *
+ * The files this script rewrites are committed with http://localhost:9080, so a
+ * fresh clone runs locally as-is and forgetting to run this on a deployment host
+ * fails obviously rather than pointing at some other machine's address. Do not
+ * commit them after running it, or that address travels into the repository.
  */
 
 const fs = require('fs');
