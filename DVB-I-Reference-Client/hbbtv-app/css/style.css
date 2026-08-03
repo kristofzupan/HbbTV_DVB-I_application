@@ -16,6 +16,14 @@ html, body {
   color: #e8e8e8;
 }
 
+/* Overlay mode: the main picture is being presented by someone else — an HbbTV
+   terminal, or a DVB-I client hosting this app in a frame — so the page must
+   not paint a background over it. Applied by app.js once it knows it is not the
+   one playing the main video. */
+html.overlay-mode, body.overlay-mode {
+  background: transparent;
+}
+
 /* ── Boot status ─────────────────────────────────────────────────────────── */
 #dvbi-boot-status {
   position: fixed;

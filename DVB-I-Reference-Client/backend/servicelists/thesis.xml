@@ -70,27 +70,6 @@
           </tva:SigningAttributes>
         </tva:AccessibilityAttributes>
       </RelatedMaterial>
-      <!-- Linked app, HTML5 / Android DVB-I client path.
-           Type 1.2 "app controlling media presentation": the client starts no media and
-           the app plays both streams itself. frontend/android/js/channel.js only launches
-           type 1.2 apps, and only when contentType is text/xml or application/xhtml+xml,
-           so this entry is what makes the app launch on the reference client today. -->
-      <RelatedMaterial>
-        <tva:HowRelated href="urn:dvb:metadata:cs:LinkedApplicationCS:2019:1.2"/>
-        <tva:MediaLocator>
-          <tva:MediaUri contentType="application/xhtml+xml">http://192.168.1.117:9080/hbbtv-app/index.html?main=http://192.168.1.117:9080/stream/live/combined/stream.mpd&amp;interpreter=http://192.168.1.117:9080/stream/live/combined/stream.mpd</tva:MediaUri>
-        </tva:MediaLocator>
-        <tva:AccessibilityAttributes>
-          <tva:SigningAttributes>
-            <tva:AppInformation>
-              <tva:RequiredStandardVersion>urn:hbbtv:appinformation:standardversion:hbbtv:1.7.1</tva:RequiredStandardVersion>
-            </tva:AppInformation>
-            <tva:Coding href="urn:dvb:metadata:cs:VideoCodecCS:2022:1.4.4"/>
-            <tva:SignLanguage>ysl</tva:SignLanguage>
-            <tva:Closed>true</tva:Closed>
-          </tva:SigningAttributes>
-        </tva:AccessibilityAttributes>
-      </RelatedMaterial>
       <!-- Main stream — played by the terminal on the type 1.1 path, and by a plain DVB-I
            client with no linked application support. -->
       <DASHDeliveryParameters>

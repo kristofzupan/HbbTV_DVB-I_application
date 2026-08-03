@@ -141,6 +141,8 @@ Channel.prototype.unselected = function () {
   self.selected = false;
   self.element.classList.remove("active");
   player.attachSource(null);
+  // The application is bound to this service; it goes when the service does.
+  hideLinkedApp();
 };
 
 Channel.prototype.getMediaPresentationApp = function (serviceInstance) {
@@ -164,6 +166,126 @@ Channel.prototype.getMediaPresentationApp = function (serviceInstance) {
     }
   }
   return null;
+};
+
+// ── Linked applications, type 1.1 ("app with media in parallel") ────────────
+//
+// The client previously handled only type 1.2, which takes over the screen.
+// Type 1.1 apps are meant to run *alongside* the client's own playback, which is
+// how DVB-I signals an accessibility overlay such as a sign-language interpreter
+// (see A177 clause 5.2.3 and TS 102 796 annex O, where these are equivalent to
+// ordinary broadcast-related applications). The client therefore keeps
+// presenting the service and hosts the application above its own video.
+
+Channel.prototype.getParallelApp = function (serviceInstance) {
+  var self = this,
+    lists = [serviceInstance && serviceInstance.parallelApps, self.parallelApps],
+    l, i, app;
+  for (l = 0; l < lists.length; l++) {
+    if (!lists[l]) continue;
+    for (i = 0; i < lists[l].length; i++) {
+      app = lists[l][i];
+      if (
+        app.contentType == AIT_MIME ||
+        app.contentType == XHTML_MIME ||
+        app.contentType == XML_MIME ||
+        app.contentType == "text/html"
+      ) {
+        return app;
+      }
+    }
+  }
+  return null;
+};
+
+// Namespace prefixes vary between AIT authors, so match on local name.
+function firstByLocalName(doc, name) {
+  var all = doc.getElementsByTagName("*"),
+    i;
+  for (i = 0; i < all.length; i++) {
+    if (all[i].localName == name) return all[i];
+  }
+  return null;
+}
+
+// An ait+xml MediaUri points at an XML AIT describing the application, not at
+// the application itself (A177 table 7). Resolve it to a launchable URL.
+function resolveLinkedAppUrl(app, callback) {
+  if (app.contentType != AIT_MIME) {
+    callback(app.url);
+    return;
+  }
+  fetch(app.url)
+    .then(function (r) {
+      return r.text();
+    })
+    .then(function (xml) {
+      var doc = new DOMParser().parseFromString(xml, "application/xml");
+      var base = firstByLocalName(doc, "URLBase");
+      var loc = firstByLocalName(doc, "applicationLocation");
+      if (!base || !loc) throw new Error("XML AIT has no URLBase/applicationLocation");
+      callback(base.textContent.trim() + loc.textContent.trim());
+    })
+    .catch(function (e) {
+      console.log("Linked application could not be resolved: " + e.message);
+    });
+}
+
+function showLinkedApp(url) {
+  var frame = document.getElementById("linked_app");
+  if (!frame) {
+    frame = document.createElement("iframe");
+    frame.id = "linked_app";
+    frame.setAttribute("allowtransparency", "true");
+    frame.style.cssText =
+      "position:fixed;left:0;top:0;width:100%;height:100%;border:0;background:transparent;z-index:5";
+    document.body.appendChild(frame);
+  }
+  if (frame.getAttribute("src") != url) frame.setAttribute("src", url);
+  frame.style.display = "block";
+  // The application handles the colour keys itself, so give it the focus.
+  try {
+    frame.contentWindow.focus();
+  } catch (e) {}
+}
+
+function hideLinkedApp() {
+  var frame = document.getElementById("linked_app");
+  if (frame) {
+    frame.style.display = "none";
+    frame.setAttribute("src", "about:blank");
+  }
+}
+
+// Seconds behind the live edge to hold playback when a linked application is
+// present. An accessibility overlay decodes the signer in software from
+// segments that are already published, so it can only follow a picture that is
+// not sitting on the live edge. A few seconds of latency buys an overlay that
+// can stay aligned; without it the two can never meet. Matches LIVE_DELAY_SEC
+// in the application.
+var LINKED_APP_LIVE_DELAY_SEC = 12;
+
+Channel.prototype.applyParallelAppLatency = function () {
+  if (!this.getParallelApp(this.serviceInstance)) return;
+  try {
+    player.updateSettings({
+      streaming: {
+        delay: { liveDelay: LINKED_APP_LIVE_DELAY_SEC },
+        liveDelay: LINKED_APP_LIVE_DELAY_SEC,
+      },
+    });
+  } catch (e) {
+    console.log("Could not set live delay for linked application: " + e.message);
+  }
+};
+
+Channel.prototype.startParallelApp = function () {
+  var app = this.getParallelApp(this.serviceInstance);
+  if (!app) {
+    hideLinkedApp();
+    return;
+  }
+  resolveLinkedAppUrl(app, showLinkedApp);
 };
 
 Channel.prototype.checkAvailability = function () {
@@ -252,8 +374,13 @@ Channel.prototype.channelSelected = function () {
     } else if (self.isProgramAllowed()) {
       $("#parentalpin").hide();
       if (self.serviceInstance) {
+        // Set before attaching the source, so the delay applies from the start.
+        self.applyParallelAppLatency();
         playDASH(player, self.serviceInstance);
       }
+      // Started after playback, in parallel with it — the client keeps the
+      // picture and the application contributes only its overlay.
+      self.startParallelApp();
     } else {
       playDASH(player, null);
       checkParentalPIN(

@@ -64,6 +64,13 @@
     if (!bc || typeof bc.bindToCurrentChannel !== 'function') { return false; }
     try {
       bc.bindToCurrentChannel();
+      // Only now give it the screen. Until a terminal has accepted the call the
+      // object stays zero-sized and hidden, so a browser never paints a
+      // "plugin not supported" placeholder in its place.
+      bc.style.width  = '100%';
+      bc.style.height = '100%';
+      bc.style.zIndex = '-1';
+      bc.style.visibility = 'visible';
       return true;
     } catch (e) {
       console.warn('[HbbTV] bindToCurrentChannel failed:', e && e.message);

@@ -149,6 +149,11 @@
       mainDashPlayer = createDashPlayer(mainVideo, currentMainUrl, true);
     }
 
+    // Someone else is presenting the picture, so stop painting over it.
+    var overlayOnly = noMainToAwait();
+    document.documentElement.classList.toggle('overlay-mode', overlayOnly);
+    document.body.classList.toggle('overlay-mode', overlayOnly);
+
     applyDecoderMode(decoderMode);
     clearError();
   }
@@ -295,9 +300,43 @@
   // not started, or the terminal presenting the main picture itself — a
   // video/broadcast object exposes no presentation timeline, which is the gap
   // MediaSynchroniser is meant to fill. The decoder then paces itself.
+  // When the app runs as an overlay inside a DVB-I client, the main picture is a
+  // video element in the hosting page. Same-origin embedding lets the overlay
+  // read that element's position directly — the browser-side equivalent of what
+  // MediaSynchroniser provides on a terminal, which has no such reach.
+  var hostVideo = null;
+
+  function findHostVideo() {
+    if (window.parent === window) { return null; }
+    try {
+      var doc = window.parent.document;   // throws when cross-origin
+      return doc.getElementById('video') ||
+             doc.getElementsByTagName('video')[0] || null;
+    } catch (e) {
+      return null;   // hosted cross-origin: no clock reachable from here
+    }
+  }
+
+  function hostVideoTime() {
+    if (!hostVideo || !hostVideo.parentNode) { hostVideo = findHostVideo(); }
+    if (!hostVideo) { return 0; }
+    try {
+      var t = hostVideo.currentTime;
+      return (typeof t === 'number' && isFinite(t)) ? t : 0;
+    } catch (e) {
+      hostVideo = null;
+      return 0;
+    }
+  }
+
   function masterClock() {
-    if (interpreterOnlyMode || terminalPresentsMain || !mainVideo) { return 0; }
-    return mainVideo.currentTime || 0;
+    // A terminal is presenting: video/broadcast exposes no presentation
+    // timeline, so there is nothing to follow until MediaSynchroniser exists.
+    if (terminalPresentsMain) { return 0; }
+    // We are playing the main picture ourselves.
+    if (!interpreterOnlyMode && mainVideo) { return mainVideo.currentTime || 0; }
+    // Overlay inside a same-origin host: follow the host's picture.
+    return hostVideoTime();
   }
 
   // ── Safe play ──────────────────────────────────────────────────────────────
