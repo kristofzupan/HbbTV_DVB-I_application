@@ -19,7 +19,23 @@
 <body>
   <div id="dvbi-boot-status">Loading DVB-I accessibility app...</div>
 
-  <!-- Main video: fullscreen background -->
+  <!-- HbbTV terminal objects. Instantiated by the terminal only; inert in a
+       browser, where they behave as empty elements.
+
+       As a linked application of type 1.1 the terminal, not this application,
+       presents the main picture. Holding a video/broadcast object bound to the
+       current channel is what keeps that presentation alive: an application that
+       starts its own broadband video without one causes the terminal to suspend
+       the channel (ETSI TS 102 796 clause A.2.1) — blacking out the programme
+       this overlay exists to accompany. -->
+  <object id="appManager" type="application/oipfApplicationManager"
+          style="position:absolute;left:0;top:0;width:0;height:0;visibility:hidden"></object>
+  <object id="broadcastVideo" type="video/broadcast"
+          style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:-1"></object>
+
+  <!-- Main video: fullscreen background. Used when the app is responsible for
+       playback (browser, or launched with ?main=); unused once bound to a
+       terminal's own presentation. -->
   <video id="mainVideo" playsinline muted>
     <track id="subtitleTrack" kind="subtitles" src="subtitles/sample.vtt" srclang="en" label="English" default>
   </video>

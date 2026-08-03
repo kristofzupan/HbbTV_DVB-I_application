@@ -15,6 +15,63 @@
   hbbtv.isHbbTV = isHbbTV();
 
   /**
+   * The OIPF application object for this document, or null off-HbbTV.
+   */
+  function getOwnerApplication() {
+    try {
+      var mgr = document.getElementById('appManager');
+      if (mgr && typeof mgr.getOwnerApplication === 'function') {
+        return mgr.getOwnerApplication(document);
+      }
+    } catch (e) {
+      // Terminal refused, or the object was never instantiated.
+    }
+    return null;
+  }
+
+  /**
+   * Make the application visible. HbbTV applications start hidden; without this
+   * the overlay is running but nothing is drawn on screen.
+   * Returns true if the terminal accepted the call.
+   */
+  hbbtv.showApplication = function () {
+    var app = getOwnerApplication();
+    if (!app) { return false; }
+    try {
+      app.show();
+      app.activate();
+      return true;
+    } catch (e) {
+      console.warn('[HbbTV] show/activate failed:', e && e.message);
+      return false;
+    }
+  };
+
+  /**
+   * Bind to whatever the terminal is currently presenting, and leave it alone.
+   *
+   * This is what makes the app a well-behaved type 1.1 linked application: the
+   * terminal keeps presenting the service (broadcast, or a DVB-I DASH instance
+   * via the native player), and the app contributes only the overlay. Without a
+   * realized video/broadcast object, any broadband video the app starts causes
+   * the terminal to suspend the channel — see TS 102 796 clause A.2.1.
+   *
+   * Returns true only if the terminal actually bound; the caller then knows not
+   * to start a player of its own.
+   */
+  hbbtv.bindToCurrentChannel = function () {
+    var bc = document.getElementById('broadcastVideo');
+    if (!bc || typeof bc.bindToCurrentChannel !== 'function') { return false; }
+    try {
+      bc.bindToCurrentChannel();
+      return true;
+    } catch (e) {
+      console.warn('[HbbTV] bindToCurrentChannel failed:', e && e.message);
+      return false;
+    }
+  };
+
+  /**
    * Lifecycle: when app is hidden or closed, pause playback (like HbbTV "stop").
    */
   function onHide() {

@@ -37,6 +37,9 @@
   var currentMainUrl        = '';
   var currentInterpreterUrl = '';
   var interpreterOnlyMode   = false;
+  // True once the terminal's own presentation is driving the main picture, in
+  // which case the app neither plays nor has a clock for it.
+  var terminalPresentsMain  = false;
 
   // ── UI state ───────────────────────────────────────────────────────────────
   var interpreterVisible = true;
@@ -133,7 +136,16 @@
     interpreterDashPlayer = destroyDashPlayer(interpreterDashPlayer);
     if (wasmDecoder) { wasmDecoder.stop(); wasmDecoder = null; }
 
-    if (!interpreterOnlyMode) {
+    // On a terminal, the main picture is the terminal's to present and ours to
+    // leave alone. Binding to the current channel keeps that presentation alive;
+    // starting our own player instead would suspend it.
+    terminalPresentsMain = HbbTV.bindToCurrentChannel();
+    if (terminalPresentsMain) {
+      console.log('[App] bound to the terminal\'s channel — overlay only');
+      mainVideo.style.display = 'none';
+    }
+
+    if (!interpreterOnlyMode && !terminalPresentsMain) {
       mainDashPlayer = createDashPlayer(mainVideo, currentMainUrl, true);
     }
 
@@ -142,6 +154,15 @@
   }
 
   // ── Decoder mode ───────────────────────────────────────────────────────────
+
+  // The interpreter decoder normally waits for the main video to start, so the
+  // two come up together. When the app is not playing the main picture — the
+  // terminal is, or we were launched interpreter-only — there is no such event
+  // and waiting for it would mean the overlay never appears.
+  function noMainToAwait() {
+    return interpreterOnlyMode || terminalPresentsMain;
+  }
+
   function stopVideoCanvas() {
     if (videoCanvasRafId) { cancelAnimationFrame(videoCanvasRafId); videoCanvasRafId = null; }
   }
@@ -158,7 +179,7 @@
       interpreterVideo.style.display = 'none';
       interpreterCanvas.style.display = 'block';
 
-      if (!interpreterOnlyMode && currentMainUrl && !mainDashPlayer) {
+      if (!noMainToAwait() && currentMainUrl && !mainDashPlayer) {
         mainDashPlayer = createDashPlayer(mainVideo, currentMainUrl, true);
       }
       if (!window.WebCodecsDecoder) {
@@ -173,7 +194,7 @@
           wasmDecoder.start(currentInterpreterUrl);
         }
       };
-      if (interpreterOnlyMode || !mainVideo.paused) { startWC(); }
+      if (noMainToAwait() || !mainVideo.paused) { startWC(); }
       else { mainVideo.addEventListener('playing', startWC); }
       return;
     }
@@ -182,7 +203,7 @@
       interpreterVideo.style.display = 'none';
       interpreterCanvas.style.display = 'block';
 
-      if (!interpreterOnlyMode && currentMainUrl && !mainDashPlayer) {
+      if (!noMainToAwait() && currentMainUrl && !mainDashPlayer) {
         mainDashPlayer = createDashPlayer(mainVideo, currentMainUrl, true);
       }
       var startVC = function () {
@@ -207,7 +228,7 @@
         }
         videoCanvasRafId = requestAnimationFrame(rafLoop);
       };
-      if (interpreterOnlyMode || !mainVideo.paused) { startVC(); }
+      if (noMainToAwait() || !mainVideo.paused) { startVC(); }
       else { mainVideo.addEventListener('playing', startVC); }
       return;
     }
@@ -217,7 +238,7 @@
       interpreterVideo.style.display = 'none';
       interpreterCanvas.style.display = 'block';
 
-      if (!interpreterOnlyMode && currentMainUrl && !mainDashPlayer) {
+      if (!noMainToAwait() && currentMainUrl && !mainDashPlayer) {
         mainDashPlayer = createDashPlayer(mainVideo, currentMainUrl, true);
       }
       var startCanvas = function () {
@@ -229,7 +250,7 @@
           wasmDecoder.start(currentInterpreterUrl);
         }
       };
-      if (!mainVideo.paused) { startCanvas(); }
+      if (noMainToAwait() || !mainVideo.paused) { startCanvas(); }
       else { mainVideo.addEventListener('playing', startCanvas); }
       return;
     }
@@ -245,7 +266,7 @@
         interpreterDashPlayer = createDashPlayer(interpreterVideo, currentInterpreterUrl, true);
       }
     };
-    if (!mainVideo.paused) { startNative(); }
+    if (noMainToAwait() || !mainVideo.paused) { startNative(); }
     else { mainVideo.addEventListener('playing', startNative); }
   }
 
@@ -256,8 +277,12 @@
   // of what MediaSynchroniser does on an HbbTV 2.0.4 terminal.
   // Returns 0 when there is no main video to follow (interpreter-only mode, or
   // playback has not started), which tells the decoder to pace itself instead.
+  // Returns 0 when there is nothing to follow: interpreter-only mode, playback
+  // not started, or the terminal presenting the main picture itself — a
+  // video/broadcast object exposes no presentation timeline, which is the gap
+  // MediaSynchroniser is meant to fill. The decoder then paces itself.
   function masterClock() {
-    if (interpreterOnlyMode || !mainVideo) { return 0; }
+    if (interpreterOnlyMode || terminalPresentsMain || !mainVideo) { return 0; }
     return mainVideo.currentTime || 0;
   }
 
@@ -491,6 +516,12 @@
   }
 
   // ── Boot ──────────────────────────────────────────────────────────────────
+  // HbbTV applications start hidden; without this the overlay runs but nothing
+  // is drawn. No-op in a browser.
+  if (HbbTV.showApplication()) {
+    console.log('[App] HbbTV application shown and activated');
+  }
+
   var bootEl = document.getElementById('dvbi-boot-status');
   if (bootEl) { bootEl.style.display = 'none'; }
 
