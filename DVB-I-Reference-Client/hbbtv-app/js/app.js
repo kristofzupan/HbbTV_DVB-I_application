@@ -208,6 +208,7 @@
         if (decoderMode !== 'webcodecs') { return; }
         if (currentInterpreterUrl && !wasmDecoder) {
           wasmDecoder = new WebCodecsDecoder(interpreterCanvas, masterClock);
+          wasmDecoder.onFirstFrame = function (w, h) { adaptToVideoRatio(w, h); };
           wasmDecoder.start(currentInterpreterUrl);
         }
       };
@@ -430,6 +431,7 @@
     } else if (decoderMode === 'webcodecs') {
       if (window.WebCodecsDecoder) {
         wasmDecoder = new WebCodecsDecoder(interpreterCanvas, masterClock);
+        wasmDecoder.onFirstFrame = function (w, h) { adaptToVideoRatio(w, h); };
         wasmDecoder.start(currentInterpreterUrl);
       }
 
@@ -600,6 +602,8 @@
   // first decoder starts: starting one and switching a moment later spins up a
   // Broadway worker and a WASM instance only to tear them down, which on TV
   // hardware is far from free.
+  var DECODER_MODES = ['canvas', 'webcodecs', 'video-canvas', 'native'];
+
   function detectDecoderMode() {
     var wcSupported   = typeof VideoDecoder !== 'undefined';
     var wasmSupported = typeof WebAssembly  !== 'undefined';
@@ -612,22 +616,67 @@
     })();
 
     console.log('[Caps] MSE:', mseSupported ? 'YES' : 'NO');
-    console.log('[Caps] WebCodecs:', wcSupported ? 'YES' : 'NO');
+    // WebCodecs is gated on a secure context, so the same terminal reports NO
+    // over http:// and YES over https:// — and silently changes decoder. Log the
+    // context alongside it, or a decoder switch caused by moving to TLS looks
+    // like a decoder switch caused by nothing.
+    console.log('[Caps] WebCodecs:', wcSupported ? 'YES' : 'NO',
+                '(secure context:', window.isSecureContext ? 'yes' : 'no', ')');
     console.log('[Caps] WASM:', wasmSupported ? 'YES' : 'NO');
 
     if (!mseSupported) {
       showError('MSE not supported — DASH streams cannot play. HbbTV 2.0 required for DASH.');
     }
 
-    if (!wcSupported || !window.WebCodecsDecoder) {
+    // Software decoding is the default, deliberately. Presenting the signer from
+    // a second video track on a terminal that has one hardware decoder is the
+    // case this work exists to demonstrate, and a decoder that only some
+    // terminals have must not quietly replace it — least of all because
+    // WebCodecs is gated on a secure context, so moving a deployment from http
+    // to https would otherwise change the decoder with nobody choosing to.
+    // WebCodecs stays available for comparison: ?decoder=webcodecs.
+    var requested = getUrlParams().decoder;
+
+    if (requested === 'webcodecs') {
+      if (!wcSupported || !window.WebCodecsDecoder) {
+        console.warn('[Caps] ?decoder=webcodecs requested but WebCodecs is unavailable' +
+                     (window.isSecureContext ? '' : ' (page is not a secure context)') +
+                     ' — using WASM');
+        return Promise.resolve('canvas');
+      }
+      return WebCodecsDecoder.isSupported('avc1.42001f')
+        .then(function (ok) {
+          console.log(ok ? '[Caps] WebCodecs H.264 OK — using webcodecs mode'
+                         : '[Caps] WebCodecs cannot decode H.264 Baseline — using WASM');
+          return ok ? 'webcodecs' : 'canvas';
+        })
+        .catch(function () { return 'canvas'; });
+    }
+
+    if (requested && DECODER_MODES.indexOf(requested) >= 0) {
+      console.log('[Caps] decoder forced by ?decoder= to', requested);
+      return Promise.resolve(requested);
+    }
+    if (requested) {
+      console.warn('[Caps] unknown ?decoder=' + requested +
+                   ' — ignoring. Modes: ' + DECODER_MODES.join(', '));
+    }
+
+    if (wasmSupported) {
+      console.log('[Caps] using WASM software decoding (default)');
       return Promise.resolve('canvas');
     }
-    return WebCodecsDecoder.isSupported('avc1.42001f')
-      .then(function (ok) {
-        if (ok) { console.log('[Caps] WebCodecs H.264 OK — using webcodecs mode'); }
-        return ok ? 'webcodecs' : 'canvas';
-      })
-      .catch(function () { return 'canvas'; });
+
+    // No WebAssembly at all: the default cannot run, so take whatever remains
+    // rather than showing nothing.
+    if (wcSupported && window.WebCodecsDecoder) {
+      console.warn('[Caps] no WebAssembly — falling back to WebCodecs');
+      return WebCodecsDecoder.isSupported('avc1.42001f')
+        .then(function (ok) { return ok ? 'webcodecs' : 'video-canvas'; })
+        .catch(function () { return 'video-canvas'; });
+    }
+    console.warn('[Caps] neither WebAssembly nor WebCodecs — falling back to video-canvas');
+    return Promise.resolve('video-canvas');
   }
 
   // Apply initial size (no CSS class — use inline style)

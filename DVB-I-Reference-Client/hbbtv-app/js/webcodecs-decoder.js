@@ -277,6 +277,7 @@
     this._queue         = [];   // {ptsSec, frame} awaiting their moment
     this._rafId         = null;
     this._loggedOffset  = false;
+    this._firstFrameReported = false;
   }
 
   // A master clock is only usable if it lands inside the manifest's segment
@@ -361,6 +362,19 @@
     self._decoder = new VideoDecoder({
       output: function (frame) {
         if (self._stopped || self._decoderGen !== myGen) { frame.close(); return; }
+
+        // The overlay is sized from the signer's own aspect ratio, which is only
+        // known once a frame exists. Reported before any queueing or dropping, so
+        // a frame that never reaches the screen still fixes the geometry.
+        // displayWidth in preference to codedWidth: it already accounts for a
+        // non-square sample aspect ratio, which is what the layout needs.
+        if (!self._firstFrameReported) {
+          self._firstFrameReported = true;
+          if (typeof self.onFirstFrame === 'function') {
+            self.onFirstFrame(frame.displayWidth  || frame.codedWidth,
+                              frame.displayHeight || frame.codedHeight);
+          }
+        }
 
         // With a master clock, hold the frame until the main video reaches its
         // presentation time. The timestamp came from the manifest, so this is a
