@@ -305,15 +305,32 @@
   // read that element's position directly — the browser-side equivalent of what
   // MediaSynchroniser provides on a terminal, which has no such reach.
   var hostVideo = null;
+  var warnedNoHostClock = false;
+
+  // Losing the host clock is not fatal — the decoder falls back to pacing itself
+  // against the live edge — but it silently costs synchronisation, which looks
+  // like a decoder fault rather than a broken bridge. Say it once, out loud.
+  function warnNoHostClock(reason) {
+    if (warnedNoHostClock) { return; }
+    warnedNoHostClock = true;
+    console.warn('[App] no host video clock (' + reason + ') — the interpreter ' +
+                 'will pace itself against the live edge and drift from the main picture');
+  }
 
   function findHostVideo() {
     if (window.parent === window) { return null; }
     try {
       var doc = window.parent.document;   // throws when cross-origin
-      return doc.getElementById('video') ||
-             doc.getElementsByTagName('video')[0] || null;
+      var v = doc.getElementById('video') ||
+              doc.getElementsByTagName('video')[0] || null;
+      if (v) { console.log('[App] host video clock acquired'); }
+      else   { warnNoHostClock('host page has no video element'); }
+      return v;
     } catch (e) {
-      return null;   // hosted cross-origin: no clock reachable from here
+      // Hosted cross-origin: no clock reachable from here. Usually means the AIT
+      // URLBase and the page the client was opened from are different hosts.
+      warnNoHostClock('host page is cross-origin: ' + e.message);
+      return null;
     }
   }
 

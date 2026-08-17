@@ -1,0 +1,35 @@
+#!/bin/sh
+# Build the single source file the live encoder loops: main picture, its audio,
+# and the cropped signer as a second video track, all in one MP4.
+#
+# Run once, whenever the source clips change. The live encoder loops the result
+# instead of looping main.mp4 and interpreter.mp4 separately, which is what kept
+# the signer drifting away from the picture over days of uptime — see ./combined.
+#
+# The main video and audio are copied, not re-encoded: only the signer is
+# touched, because it needs the crop and scale anyway. -shortest guards against
+# the two clips ever being trimmed to different lengths.
+set -e
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+IN_MAIN="$ROOT/video_content/main.mp4"
+IN_SIGN="$ROOT/video_content/interpreter.mp4"
+OUT="$ROOT/video_content/source_combined.mp4"
+
+for f in "$IN_MAIN" "$IN_SIGN"; do
+  [ -f "$f" ] || { echo "Missing $f" >&2; exit 1; }
+done
+
+ffmpeg -y \
+  -i "$IN_MAIN" \
+  -i "$IN_SIGN" \
+  -filter_complex "[1:v]crop=1080:1080:420:0,scale=480:480,fps=25[sign]" \
+  -map 0:v:0 -c:v:0 copy \
+  -map 0:a:0 -c:a   copy \
+  -map "[sign]" -c:v:1 libx264 -preset medium -crf 18 -pix_fmt yuv420p \
+  -shortest -movflags +faststart \
+  "$OUT"
+
+echo "Wrote $OUT"
+ffprobe -v error -show_entries stream=index,codec_type,width,height,nb_frames \
+        -of default=noprint_wrappers=1 "$OUT"
