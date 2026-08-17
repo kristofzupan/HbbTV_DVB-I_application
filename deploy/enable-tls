@@ -113,8 +113,12 @@ command -v certbot >/dev/null 2>&1 || sudo apt-get install -y certbot
 # in years. Some of those sets also reject ECDSA server certificates outright.
 # The devices this service exists for are exactly the ones least likely to cope
 # with the newer chain, and nothing here is performance-sensitive.
+#
+# --cert-name pins the lineage to the domain name. Without it certbot refuses to
+# change an existing certificate's key type, which is exactly what a re-run
+# against a lineage created before this flag existed would be asking for.
 sudo certbot certonly --webroot -w "$WEBROOT" -d "$DOMAIN" \
-  --key-type rsa \
+  --cert-name "$DOMAIN" --key-type rsa \
   --agree-tos -m "$EMAIL" --non-interactive $STAGING
 
 if [ -n "$STAGING" ]; then
