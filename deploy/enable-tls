@@ -106,7 +106,15 @@ command -v certbot >/dev/null 2>&1 || sudo apt-get install -y certbot
 
 # webroot rather than the nginx plugin: the plugin rewrites the site file, which
 # would put the deployed configuration out of step with the one in the repository.
+#
+# RSA rather than certbot's ECDSA default. The default chains to ISRG Root X2,
+# issued in 2020; RSA chains to ISRG Root X1, which is older and far more widely
+# present in the trust stores of televisions that have not seen a firmware update
+# in years. Some of those sets also reject ECDSA server certificates outright.
+# The devices this service exists for are exactly the ones least likely to cope
+# with the newer chain, and nothing here is performance-sensitive.
 sudo certbot certonly --webroot -w "$WEBROOT" -d "$DOMAIN" \
+  --key-type rsa \
   --agree-tos -m "$EMAIL" --non-interactive $STAGING
 
 if [ -n "$STAGING" ]; then
@@ -153,8 +161,8 @@ once you have loaded the client over HTTPS and seen the interpreter play, becaus
 every URL moves together:
 
   1. edit .env      BASE_URL=https://dvb-i.lmmfe.org
-                    (drop PORT, or the generated URLs keep a port that 443 does
-                    not need)
+                    (PORT is only the port php -S would bind and does not appear
+                    in any generated URL once BASE_URL is set; leave it alone)
   2. sh deploy/update
   3. reload the client and check the console for mixed-content errors — one
      http:// sub-resource on an https:// page is blocked outright, and it
