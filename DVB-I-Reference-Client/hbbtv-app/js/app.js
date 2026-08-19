@@ -125,8 +125,15 @@
   // ── Source initialisation ──────────────────────────────────────────────────
   function initSources() {
     var urlParams = getUrlParams();
-    var mainUrl   = urlParams.main        || 'http://localhost:9080/stream/live/main/stream.mpd';
-    var interpUrl = urlParams.interpreter || 'http://localhost:9080/stream/live/interpreter/stream.mpd';
+    // Both defaults are the combined manifest, not the separate main/interpreter
+    // ones: those stopped being published when the two tracks moved into a single
+    // encoder, and a default that 404s costs nothing at load time — it fails
+    // inside the decoder's retry loop, which reports to the console and leaves an
+    // empty overlay on screen. dash.js takes the main role from this manifest and
+    // the software decoder takes the sign role, so they also share a timeline.
+    var COMBINED_MPD = 'http://localhost:9080/stream/live/combined/stream.mpd';
+    var mainUrl   = urlParams.main        || COMBINED_MPD;
+    var interpUrl = urlParams.interpreter || COMBINED_MPD;
 
     interpreterOnlyMode   = !!(urlParams.interpreter && !urlParams.main);
     currentMainUrl        = mainUrl;
@@ -209,6 +216,7 @@
         if (currentInterpreterUrl && !wasmDecoder) {
           wasmDecoder = new WebCodecsDecoder(interpreterCanvas, masterClock);
           wasmDecoder.onFirstFrame = function (w, h) { adaptToVideoRatio(w, h); };
+          wasmDecoder.onError = showError;
           wasmDecoder.start(currentInterpreterUrl);
         }
       };
@@ -267,6 +275,7 @@
         if (currentInterpreterUrl && !wasmDecoder) {
           wasmDecoder = new WasmDecoder(interpreterCanvas, masterClock);
           wasmDecoder.onFirstFrame = function (w, h) { adaptToVideoRatio(w, h); };
+          wasmDecoder.onError = showError;
           wasmDecoder.start(currentInterpreterUrl);
         }
       };
@@ -480,6 +489,80 @@
     if (el) { el.style.display = 'none'; }
   }
 
+  // ── On-screen diagnostic ───────────────────────────────────────────────────
+  // Every way this application can fail on a television reports to a console no
+  // one can read there. The panel below shows the same facts on the screen, and
+  // takes itself away as soon as frames are reaching the canvas, so a working
+  // deployment looks no different than it did before. Key 0 brings it back.
+  //
+  // "decoded" rising while "drawn" stays at 0 means the decoder is fine and the
+  // render path is not — the single most useful distinction here, and the one
+  // that is invisible from the picture alone.
+  var diagEl = null;
+  var diagForced = false;
+
+  function capabilities() {
+    var webgl = false;
+    try {
+      var c = document.createElement('canvas');
+      webgl = !!(c.getContext('webgl') || c.getContext('experimental-webgl'));
+    } catch (e) {}
+    return {
+      wasm:   typeof WebAssembly !== 'undefined',
+      webgl:  webgl,
+      wc:     typeof VideoDecoder !== 'undefined',
+      worker: typeof Worker !== 'undefined',
+      fetch:  typeof fetch !== 'undefined',
+      pad:    typeof String.prototype.padStart === 'function',
+      secure: !!window.isSecureContext
+    };
+  }
+
+  function yn(v) { return v ? 'Y' : 'N'; }
+
+  function renderDiag() {
+    var stats = (wasmDecoder && typeof wasmDecoder.getStats === 'function')
+      ? wasmDecoder.getStats() : null;
+
+    // Hide once the overlay is demonstrably working, unless asked to stay.
+    if (!diagForced && stats && stats.drawn > 0) {
+      if (diagEl) { diagEl.style.display = 'none'; }
+      return;
+    }
+
+    if (!diagEl) {
+      diagEl = document.createElement('div');
+      diagEl.style.cssText =
+        'position:fixed;left:0;top:0;z-index:9998;max-width:70%;' +
+        'background:rgba(0,0,0,0.8);color:#0f0;font-family:monospace;' +
+        'font-size:0.85rem;line-height:1.35;padding:0.5rem 0.75rem;' +
+        'white-space:pre-wrap;word-break:break-all';
+      document.body.appendChild(diagEl);
+    }
+    diagEl.style.display = 'block';
+
+    var c = capabilities();
+    var clock = terminalPresentsMain ? 'none (terminal presents)'
+              : interpreterOnlyMode  ? 'none (interpreter-only)'
+              : String(masterClock().toFixed(2)) + 's';
+
+    diagEl.textContent =
+      'decoder=' + decoderMode + '  render=' + (stats ? stats.renderPath : '-') + '\n' +
+      'WASM=' + yn(c.wasm) + ' WebGL=' + yn(c.webgl) + ' WebCodecs=' + yn(c.wc) +
+      ' Worker=' + yn(c.worker) + ' fetch=' + yn(c.fetch) +
+      ' padStart=' + yn(c.pad) + ' secure=' + yn(c.secure) + '\n' +
+      'terminal=' + yn(terminalPresentsMain) + ' interpOnly=' + yn(interpreterOnlyMode) +
+      ' clock=' + clock + '\n' +
+      'url=' + currentInterpreterUrl + '\n' +
+      (stats
+        ? 'mpdFails=' + stats.mpdFails + '  decoded=' + stats.decoded +
+          '  drawn=' + stats.drawn +
+          (stats.lastFailure ? '\nlast: ' + stats.lastFailure : '')
+        : 'decoder not started');
+  }
+
+  setInterval(renderDiag, 1000);
+
   // ── TV remote key handler ──────────────────────────────────────────────────
   var VK_LEFT   = 37;
   var VK_UP     = 38;
@@ -489,11 +572,19 @@
   var VK_GREEN  = 404; var VK_GREEN2  = 184;
   var VK_YELLOW = 405; var VK_YELLOW2 = 185;
   var VK_BLUE   = 406; var VK_BLUE2   = 186;
+  var VK_0      = 48;
 
   document.addEventListener('keydown', function (e) {
     var key = e.keyCode || e.which;
 
     switch (key) {
+      case VK_0:
+        diagForced = !diagForced;
+        if (!diagForced && diagEl) { diagEl.style.display = 'none'; }
+        else { renderDiag(); }
+        e.preventDefault();
+        break;
+
       case VK_RED:
       case VK_RED2:
         toggleInterpreter();

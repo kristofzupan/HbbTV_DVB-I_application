@@ -15,6 +15,16 @@
 
   // ── MPD parser ─────────────────────────────────────────────────────────────
 
+  // String.prototype.padStart is ES2017 and missing from the browsers in HbbTV
+  // terminals of the generation this work targets. It was reached on every
+  // manifest refresh, from inside a promise chain whose only handler logs to the
+  // console — so on those terminals the overlay stayed empty and said nothing.
+  function zeroPad(num, width) {
+    var s = String(num);
+    while (s.length < width) { s = '0' + s; }
+    return s;
+  }
+
   function isVideoAdaptationSet(a) {
     if ((a.getAttribute('contentType') || '').indexOf('video') !== -1) return true;
     if ((a.getAttribute('mimeType') || '').indexOf('video') !== -1) return true;
@@ -80,7 +90,7 @@
       return base + tpl
         .replace('$RepresentationID$', repId)
         .replace(/\$Number%0(\d+)d\$/, function (_, w) {
-          return String(num).padStart(parseInt(w, 10), '0');
+          return zeroPad(num, parseInt(w, 10));
         })
         .replace('$Number$', num);
     }
@@ -275,7 +285,16 @@
     this._player      = null;
     this._stopped     = false;
     this._initFetched = false;
+    this._mpdFails    = 0;
     this._lastSegNum  = -1;
+    // Cumulative across worker restarts, unlike _globalFrameIdx. "Decoded but
+    // never drawn" is the signature of a broken render path, and telling that
+    // apart from "never decoded" is most of the diagnosis on a device with no
+    // reachable console.
+    this._framesDecoded = 0;
+    this._framesDrawn   = 0;
+    this._lastFailure   = null;
+    this._forceNoWebGL  = false;
     this._mpdUrl      = null;
     this._offscreen   = document.createElement('canvas');
     this._offCtx      = this._offscreen.getContext('2d');
@@ -348,7 +367,9 @@
     self._player = new Player({
       useWorker:      true,
       workerFile:     'js/broadway-decoder.js',
-      webgl:          'auto',
+      // 'auto' unless a YUVCanvas init has already failed on this device, in
+      // which case the worker must convert to RGBA itself.
+      webgl:          self._forceNoWebGL ? false : 'auto',
       render:         false,
       transferMemory: true,
       size:           { width: 1, height: 1 }
@@ -369,6 +390,7 @@
       }
 
       var fi = self._globalFrameIdx++;
+      self._framesDecoded++;
       if (self._playbackStart === null) self._playbackStart = Date.now();
 
       // Broadway emits pictures in submission order (Baseline profile has no
@@ -409,9 +431,21 @@
           self._yuvCanvas.height   = h;
           self._yuvRenderer        = new YUVCanvas({ canvas: self._yuvCanvas, width: w, height: h });
           if (!self._yuvRenderer.isWebGL()) {
-            // WebGL context creation failed despite detection — skip this frame.
-            console.warn('[WasmDecoder] YUVCanvas WebGL init failed');
-            self._yuvRenderer = null;
+            // Broadway's detection said WebGL, YUVCanvas disagrees. Skipping the
+            // frame and retrying is not a recovery: the flag is never cleared, so
+            // every later frame lands here too and the overlay stays empty for
+            // the rest of the session with only a console warning to show for it.
+            //
+            // Falling through to the RGBA branch below would not work either —
+            // webgl:'auto' told the worker to emit YUV planes, so `buf` is the
+            // wrong shape for putImageData. The worker has to be rebuilt with
+            // conversion switched back on, which is what _forceNoWebGL does.
+            console.warn('[WasmDecoder] YUVCanvas WebGL init failed — ' +
+                         'restarting the worker in software RGBA mode');
+            self._yuvRenderer  = null;
+            self._forceNoWebGL = true;
+            self._createPlayer();
+            self._initFetched  = false; // fresh worker needs SPS/PPS again
             return;
           }
         }
@@ -430,7 +464,9 @@
             // to drawNextOuptutPictureGL(par); par.yData/uData/vData are the planes.
             self._yuvRenderer.drawNextOutputPicture({ yData: yData, uData: uData, vData: vData });
             drawContain(self._ctx, self._yuvCanvas, w, h, self._canvas.width, self._canvas.height);
+            self._framesDrawn++;
           } catch (e) {
+            self._lastFailure = 'WebGL render: ' + (e && e.message ? e.message : e);
             console.warn('[WasmDecoder] WebGL render error', e);
           }
         }, Math.max(0, delay));
@@ -455,11 +491,25 @@
               self._offCtx.putImageData(self._imgData, 0, 0);
               drawContain(self._ctx, self._offscreen, w, h, self._canvas.width, self._canvas.height);
             }
+            self._framesDrawn++;
           } catch (e) {
+            self._lastFailure = 'RGBA render: ' + (e && e.message ? e.message : e);
             console.warn('[WasmDecoder] render error', e);
           }
         }, Math.max(0, delay));
       }
+    };
+  };
+
+  // Snapshot for the on-screen diagnostic. Everything here is otherwise only
+  // visible in a console, which a television does not offer.
+  WasmDecoder.prototype.getStats = function () {
+    return {
+      decoded:   this._framesDecoded,
+      drawn:     this._framesDrawn,
+      mpdFails:  this._mpdFails,
+      renderPath: this._useWebGL ? 'webgl' : 'rgba',
+      lastFailure: this._lastFailure
     };
   };
 
@@ -486,6 +536,7 @@
       .then(function (text) {
         if (self._stopped) return;
         var parsed = parseMPD(text, self._mpdUrl);
+        self._mpdFails = 0;   // recovered — stop reporting the old failure
 
         console.log('[WasmDecoder] MPD parsed — live:', parsed.isLive, 'segments:', parsed.segmentUrls.length, 'startNum:', parsed.startNumber);
 
@@ -621,6 +672,16 @@
       })
       .catch(function (e) {
         console.error('[WasmDecoder] MPD error:', e);
+        // Retrying forever against a manifest that will never load looks exactly
+        // like a decoder that is merely slow to start: an empty overlay, no
+        // message. On a terminal there is no console to check, so say it on
+        // screen once the retries stop being plausibly transient.
+        self._mpdFails++;
+        self._lastFailure = 'MPD: ' + (e && e.message ? e.message : e);
+        if (self._mpdFails === 3 && typeof self.onError === 'function') {
+          self.onError('Interpreter stream unavailable: ' + (e && e.message ? e.message : e) +
+                       ' (' + self._mpdUrl + ')');
+        }
         if (!self._stopped) {
           setTimeout(function () { self._fetchMPDAndDecode(); }, 5000);
         }

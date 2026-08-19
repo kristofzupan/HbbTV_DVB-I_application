@@ -20,6 +20,14 @@
 
   // ── MPD parser ──────────────────────────────────────────────────────────────
 
+  // See the note in wasm-decoder.js: padStart is ES2017 and absent on the
+  // terminals this has to run on.
+  function zeroPad(num, width) {
+    var s = String(num);
+    while (s.length < width) { s = '0' + s; }
+    return s;
+  }
+
   function isVideoAdaptationSet(a) {
     if ((a.getAttribute('contentType') || '').indexOf('video') !== -1) return true;
     if ((a.getAttribute('mimeType') || '').indexOf('video') !== -1) return true;
@@ -88,7 +96,7 @@
       return base + tpl
         .replace('$RepresentationID$', repId)
         .replace(/\$Number%0(\d+)d\$/, function (_, w) {
-          return String(num).padStart(parseInt(w, 10), '0');
+          return zeroPad(num, parseInt(w, 10));
         })
         .replace('$Number$', num);
     }
