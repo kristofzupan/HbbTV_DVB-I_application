@@ -61,11 +61,18 @@ function getLocalIp() {
   return null;
 }
 
-// Replace any http(s)://host:port prefix in a file with installLocation.
+// Origin of a URL this project serves: an http(s) host that either carries an
+// explicit port, or is followed by one of our own top-level paths. The second
+// form is what makes a portless origin (https://dvb-i.lmmfe.org) replaceable on
+// a later run; matching scheme://host unconditionally would rewrite the XML
+// namespace URIs in the service lists, which are not addresses at all.
+const ORIGIN = /https?:\/\/[\w.\-]+(?::\d+)?(?=\/(?:frontend|backend|hbbtv-app|stream)\/)|https?:\/\/[\w.\-]+:\d+/g;
+
+// Replace any origin of ours in a file with installLocation.
 function patchUrls(filePath, installLocation) {
   if (!fs.existsSync(filePath)) return;
   const content = fs.readFileSync(filePath, 'utf8');
-  const patched = content.replace(/https?:\/\/[\w.\-]+:\d+/g, installLocation);
+  const patched = content.replace(ORIGIN, installLocation);
   if (patched !== content) {
     fs.writeFileSync(filePath, patched, 'utf8');
     console.log('Patched URLs in', path.relative(REPO_ROOT, filePath));

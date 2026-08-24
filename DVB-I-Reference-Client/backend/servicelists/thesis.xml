@@ -1,18 +1,25 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<ServiceList xmlns="urn:dvb:metadata:servicediscovery:2024" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:tva="urn:tva:metadata:2024" xmlns:dvbi-types="urn:dvb:metadata:servicediscovery-types:2023" xsi:schemaLocation="urn:dvb:metadata:servicediscovery:2024 schemas/dvbi_v6.0.xsd" xml:lang="en" id="thesis-accessibility" version="4">
+<ServiceList xmlns="urn:dvb:metadata:servicediscovery:2024" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:tva="urn:tva:metadata:2024" xmlns:dvbi-types="urn:dvb:metadata:servicediscovery-types:2023" xsi:schemaLocation="urn:dvb:metadata:servicediscovery:2024 schemas/dvbi_v6.0.xsd" xml:lang="en" id="tag:lmmfe.org,2026:thesis-accessibility" version="5">
   <Name>Thesis accessibility list</Name>
   <ProviderName>Thesis</ProviderName>
   <LCNTableList>
     <LCNTable>
-      <LCN channelNumber="1" serviceRef="tag:thesis,2026:accessibility1"/>
-      <LCN channelNumber="2" serviceRef="tag:thesis,2026:accessibility2"/>
-      <LCN channelNumber="3" serviceRef="tag:thesis,2026:accessibility3"/>
+      <LCN channelNumber="1" serviceRef="tag:lmmfe.org,2026:accessibility1"/>
+      <LCN channelNumber="2" serviceRef="tag:lmmfe.org,2026:accessibility2"/>
+      <LCN channelNumber="3" serviceRef="tag:lmmfe.org,2026:accessibility3"/>
     </LCNTable>
   </LCNTableList>
 
+  <!-- Service and list identifiers are tag URIs (RFC 4151): the authority must be
+       a DNS name we control, so that the identifier is globally unique without a
+       registry. "tag:thesis,…" was neither a DNS name nor an e-mail address and
+       would be rejected by the DVB-I service list validator, even though the
+       schema types it only as anyURI. The id here must stay equal to the
+       ServiceListId of the matching offering in backend/slepr-master.xml. -->
+
   <!-- Channel 1: VOD only (no interpreter) -->
   <Service version="1">
-    <UniqueIdentifier>tag:thesis,2026:accessibility1</UniqueIdentifier>
+    <UniqueIdentifier>tag:lmmfe.org,2026:accessibility1</UniqueIdentifier>
     <ServiceInstance priority="1">
       <DASHDeliveryParameters>
         <UriBasedLocation contentType="application/dash+xml">
@@ -26,7 +33,7 @@
 
   <!-- Channel 2: Live only (no interpreter) -->
   <Service version="1">
-    <UniqueIdentifier>tag:thesis,2026:accessibility2</UniqueIdentifier>
+    <UniqueIdentifier>tag:lmmfe.org,2026:accessibility2</UniqueIdentifier>
     <ServiceInstance priority="1">
       <DASHDeliveryParameters>
         <UriBasedLocation contentType="application/dash+xml">
@@ -38,10 +45,20 @@
     <ProviderName>Thesis</ProviderName>
   </Service>
 
-  <!-- Channel 3: Accessibility channel — HbbTV app with main + interpreter via DVB-I -->
+  <!-- Channel 3: Accessibility channel.
+       Two instances of the same service, carrying the same programme with the
+       same signing, produced two different ways. A client picks one; the DVB-I
+       reference client takes the lowest priority number, so instance 1 is the
+       default and instance 2 is what a client falls back to — or what a client
+       that selects instances from a user accessibility preference would choose
+       when the viewer cannot run applications. -->
   <Service version="1">
-    <UniqueIdentifier>tag:thesis,2026:accessibility3</UniqueIdentifier>
+    <UniqueIdentifier>tag:lmmfe.org,2026:accessibility3</UniqueIdentifier>
+
+    <!-- Instance 1: signer as a separate video track, drawn by an application.
+         The viewer can move, resize or switch it off. -->
     <ServiceInstance priority="1">
+      <DisplayName>Accessibility Channel (app overlay)</DisplayName>
       <!-- Linked app, HbbTV terminal path.
            Type 1.1 "app with media in parallel": the terminal presents the main stream
            from DASHDeliveryParameters below and starts this app alongside it, so the app
@@ -55,7 +72,11 @@
       <RelatedMaterial>
         <tva:HowRelated href="urn:dvb:metadata:cs:LinkedApplicationCS:2019:1.1"/>
         <tva:MediaLocator>
-          <tva:MediaUri contentType="application/vnd.dvb.ait+xml">http://localhost:9080/hbbtv-app/aitx.php</tva:MediaUri>
+          <!-- ?service= names which service this AIT is for; aitx.php reads that
+               service's own DASH URI back out of this file and hands it to the
+               application. One application, any number of signed channels, and
+               no second place where stream URLs have to be kept in step. -->
+          <tva:MediaUri contentType="application/vnd.dvb.ait+xml">http://localhost:9080/hbbtv-app/aitx.php?service=tag:lmmfe.org,2026:accessibility3</tva:MediaUri>
         </tva:MediaLocator>
         <tva:AccessibilityAttributes>
           <tva:SigningAttributes>
@@ -64,7 +85,11 @@
                    (inVisionSigning user preference, TS 102 796 clause 15.3.9). -->
               <tva:RequiredStandardVersion>urn:hbbtv:appinformation:standardversion:hbbtv:1.7.1</tva:RequiredStandardVersion>
             </tva:AppInformation>
-            <tva:Coding href="urn:dvb:metadata:cs:VideoCodecCS:2022:1.4.4"/>
+            <!-- 1.1.10 = H.264-base-L3.1, which is how ffmpeg_stream_commands/combined
+                 encodes the signer track (-profile:v:1 baseline -level:v:1 3.1).
+                 Baseline is deliberate: Broadway.js, the software decoder used where
+                 WebCodecs is absent, decodes no other profile. -->
+            <tva:Coding href="urn:dvb:metadata:cs:VideoCodecCS:2022:1.1.10"/>
             <tva:SignLanguage>ysl</tva:SignLanguage><!-- verify: ISO 639-3 code for the sign language actually used -->
             <tva:Closed>true</tva:Closed>
           </tva:SigningAttributes>
@@ -78,6 +103,41 @@
         </UriBasedLocation>
       </DASHDeliveryParameters>
     </ServiceInstance>
+
+    <!-- Instance 2: signer composited into the picture by the encoder.
+         No application, no second decoder, nothing for the client to support —
+         and nothing the viewer can change either. This is how every deployment
+         surveyed in A185 annex A does signing today, and it is here so the two
+         approaches can be compared on one service from one service list.
+
+         AccessibilityAttributes sits in ContentAttributes, not in RelatedMaterial:
+         here the signing is a property of the media itself, not of a linked
+         application. Closed=false: burnt in, cannot be switched off. -->
+    <ServiceInstance priority="2">
+      <DisplayName>Accessibility Channel (burnt-in signer)</DisplayName>
+      <ContentAttributes>
+        <!-- Unprefixed: inside ContentAttributes the element is declared by the
+             DVB-I schema, so it sits in the servicediscovery namespace even
+             though its type comes from TV-Anytime. In RelatedMaterial above the
+             same element is declared by the TVA schema and is tva:-prefixed. -->
+        <AccessibilityAttributes>
+          <tva:SigningAttributes>
+            <!-- 1.4.12 = H.264-high-L4, as encoded by ffmpeg_stream_commands/burned.
+                 The signer is part of this video, so the codec of the picture is
+                 the codec of the access service. -->
+            <tva:Coding href="urn:dvb:metadata:cs:VideoCodecCS:2022:1.4.12"/>
+            <tva:SignLanguage>ysl</tva:SignLanguage><!-- verify: same code as instance 1 -->
+            <tva:Closed>false</tva:Closed>
+          </tva:SigningAttributes>
+        </AccessibilityAttributes>
+      </ContentAttributes>
+      <DASHDeliveryParameters>
+        <UriBasedLocation contentType="application/dash+xml">
+          <dvbi-types:URI>http://localhost:9080/stream/live/burned/stream.mpd</dvbi-types:URI>
+        </UriBasedLocation>
+      </DASHDeliveryParameters>
+    </ServiceInstance>
+
     <ServiceName>Accessibility Channel</ServiceName>
     <ProviderName>Thesis</ProviderName>
   </Service>

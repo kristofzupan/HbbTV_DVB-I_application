@@ -45,7 +45,8 @@
 		<sd-types:Delivery>
 				<sd-types:DASHDelivery/>
 			</sd-types:Delivery>
-			<sd-types:ServiceListId>tag:thesis,2025:list1</sd-types:ServiceListId>
+			<!-- Must equal the id attribute of servicelists/thesis.xml. -->
+			<sd-types:ServiceListId>tag:lmmfe.org,2026:thesis-accessibility</sd-types:ServiceListId>
 		</sld:ServiceListOffering>
 		<sld:ServiceListOffering regulatorListFlag="false">
 		<sd-types:ServiceListName>DVB-I Reference Client default service list</sd-types:ServiceListName>

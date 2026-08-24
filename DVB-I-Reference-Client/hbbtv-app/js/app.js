@@ -40,6 +40,12 @@
   // True once the terminal's own presentation is driving the main picture, in
   // which case the app neither plays nor has a clock for it.
   var terminalPresentsMain  = false;
+  // True only when this application is itself playing the main picture, which
+  // is a browser-only situation. Set once per initSources(); everything that
+  // waits on the main video reads it through noMainToAwait() rather than
+  // re-deriving the condition, so no path can decline to start a player and
+  // still leave the decoder waiting for a 'playing' event that cannot arrive.
+  var appPresentsMain       = false;
 
   // ── UI state ───────────────────────────────────────────────────────────────
   var interpreterVisible = true;
@@ -149,11 +155,27 @@
     terminalPresentsMain = HbbTV.bindToCurrentChannel();
     if (terminalPresentsMain) {
       console.log('[App] bound to the terminal\'s channel — overlay only');
-      mainVideo.style.display = 'none';
     }
 
-    if (!interpreterOnlyMode && !terminalPresentsMain) {
+    // Presenting the main picture is a browser affordance, never a terminal one.
+    // The two flags above cover every path we launch deliberately — the AIT
+    // passes ?interpreter= with no ?main=, and a bound terminal sets
+    // terminalPresentsMain — but both are conditions that happen to hold rather
+    // than guarantees. bindToCurrentChannel() returns false whenever a terminal
+    // refuses or throws, which is what an older one does, and the parameterless
+    // default above is the full-screen combined manifest. Those two together
+    // would start broadband video with no realized video/broadcast object, and
+    // the terminal would suspend the channel (TS 102 796 clause A.2.1) —
+    // blacking out the programme this overlay exists to accompany. Refusing on
+    // any HbbTV stack makes that structurally impossible rather than unlikely.
+    appPresentsMain = !interpreterOnlyMode && !terminalPresentsMain && !HbbTV.isHbbTV;
+    if (appPresentsMain) {
       mainDashPlayer = createDashPlayer(mainVideo, currentMainUrl, true);
+    } else {
+      // Nothing will ever be decoded into it, and at z-index 0 over the full
+      // screen an empty video element is an opaque black rectangle sitting on
+      // top of whatever is presenting the picture.
+      mainVideo.style.display = 'none';
     }
 
     // Someone else is presenting the picture, so stop painting over it.
@@ -169,10 +191,13 @@
 
   // The interpreter decoder normally waits for the main video to start, so the
   // two come up together. When the app is not playing the main picture — the
-  // terminal is, or we were launched interpreter-only — there is no such event
-  // and waiting for it would mean the overlay never appears.
+  // terminal is, we were launched interpreter-only, or we are on an HbbTV stack
+  // at all — there is no such event, and waiting for it would mean the overlay
+  // never appears. The three places in applyDecoderMode() that would otherwise
+  // start a main player of their own are gated on this too, so the refusal
+  // above holds for every decoder path rather than only the initial one.
   function noMainToAwait() {
-    return interpreterOnlyMode || terminalPresentsMain;
+    return !appPresentsMain;
   }
 
   function stopVideoCanvas() {

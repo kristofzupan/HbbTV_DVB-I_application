@@ -1,0 +1,47 @@
+#!/bin/sh
+# The same programme with the signer composited into the picture, as one
+# ordinary video track. This is the conventional way signing is delivered —
+# every deployment surveyed in DVB BlueBook A185 annex A does it this way — and
+# it exists here as the comparison case for ./combined, not as a fallback.
+#
+# It is signalled as the second ServiceInstance of channel 3 in the service
+# list, with AccessibilityAttributes in ContentAttributes and Closed=false: the
+# signer is a property of the media and the viewer cannot switch it off, move it
+# or resize it. Everything ./combined gains is what this loses.
+#
+# Reads the same source file as ./combined, so both streams show the same
+# programme with the same signer at the same size and position, and any
+# difference a viewer sees is a difference between the two approaches rather
+# than between two encodes.
+set -e
+
+# Resolve the repository from this script's own location, so the same file works
+# unchanged on a development machine and on the deployment host.
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+OUT="$ROOT/DVB-I-Reference-Client/stream/live/burned"
+SRC="$ROOT/video_content/source_combined.mp4"
+
+if [ ! -f "$SRC" ]; then
+  echo "Missing $SRC — build it first with: sh $(dirname "$0")/mux-source" >&2
+  exit 1
+fi
+
+mkdir -p "$OUT"
+
+# The signer is the second video track of the source, already cropped and
+# scaled to 480x480 by ./mux-source. overlay places it bottom right with a
+# 32 px margin, which is where the application puts it by default.
+#
+# One encode, one video AdaptationSet: no Role descriptor, because there is
+# nothing for a client to select. shortest=0 keeps the main picture running if
+# the signer track ever ends early.
+exec ffmpeg \
+  -stream_loop -1 -re -i "$SRC" \
+  -filter_complex "[0:v:0][0:v:1]overlay=W-w-32:H-h-32:shortest=0[out]" \
+  -map "[out]" -map 0:a:0 \
+  -c:v libx264 -preset veryfast -sc_threshold 0 -g 100 -keyint_min 100 \
+  -profile:v high -level 4.0 -b:v 3000k -maxrate 3300k -bufsize 6000k \
+  -c:a aac -b:a 128k -ar 48000 \
+  -f dash -format_options "movflags=+cmaf" -seg_duration 4 -window_size 15 -use_template 1 -use_timeline 1 \
+  -utc_timing_url "https://time.akamai.com/?iso" \
+  -remove_at_exit 1 "$OUT/stream.mpd"
