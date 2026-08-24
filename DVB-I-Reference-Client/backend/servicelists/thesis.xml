@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<ServiceList xmlns="urn:dvb:metadata:servicediscovery:2024" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:tva="urn:tva:metadata:2024" xmlns:dvbi-types="urn:dvb:metadata:servicediscovery-types:2023" xsi:schemaLocation="urn:dvb:metadata:servicediscovery:2024 schemas/dvbi_v6.0.xsd" xml:lang="en" id="tag:lmmfe.org,2026:thesis-accessibility" version="5">
+<ServiceList xmlns="urn:dvb:metadata:servicediscovery:2024" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:tva="urn:tva:metadata:2024" xmlns:dvbi-types="urn:dvb:metadata:servicediscovery-types:2023" xsi:schemaLocation="urn:dvb:metadata:servicediscovery:2024 schemas/dvbi_v6.0.xsd" xml:lang="en" id="tag:lmmfe.org,2026:thesis-accessibility" version="6">
   <Name>Thesis accessibility list</Name>
   <ProviderName>Thesis</ProviderName>
   <LCNTableList>
@@ -7,6 +7,9 @@
       <LCN channelNumber="1" serviceRef="tag:lmmfe.org,2026:accessibility1"/>
       <LCN channelNumber="2" serviceRef="tag:lmmfe.org,2026:accessibility2"/>
       <LCN channelNumber="3" serviceRef="tag:lmmfe.org,2026:accessibility3"/>
+      <!-- Without an LCN entry a Service is invisible: the client is configured
+           with INCLUDE_NON_LCN_CHANNELS = false, and the schema cannot catch it. -->
+      <LCN channelNumber="4" serviceRef="tag:lmmfe.org,2026:accessibility4"/>
     </LCNTable>
   </LCNTableList>
 
@@ -45,18 +48,13 @@
     <ProviderName>Thesis</ProviderName>
   </Service>
 
-  <!-- Channel 3: Accessibility channel.
-       Two instances of the same service, carrying the same programme with the
-       same signing, produced two different ways. A client picks one; the DVB-I
-       reference client takes the lowest priority number, so instance 1 is the
-       default and instance 2 is what a client falls back to — or what a client
-       that selects instances from a user accessibility preference would choose
-       when the viewer cannot run applications. -->
+  <!-- Channel 3: the accessibility channel this project is about. The signer is
+       a separate video track and an application draws it over the picture, so
+       the viewer can move it, resize it or switch it off. Channel 4 carries the
+       same programme with the signer burnt in, as the comparison. -->
   <Service version="1">
     <UniqueIdentifier>tag:lmmfe.org,2026:accessibility3</UniqueIdentifier>
 
-    <!-- Instance 1: signer as a separate video track, drawn by an application.
-         The viewer can move, resize or switch it off. -->
     <ServiceInstance priority="1">
       <DisplayName>Accessibility Channel (app overlay)</DisplayName>
       <!-- Linked app, HbbTV terminal path.
@@ -104,29 +102,45 @@
       </DASHDeliveryParameters>
     </ServiceInstance>
 
-    <!-- Instance 2: signer composited into the picture by the encoder.
-         No application, no second decoder, nothing for the client to support —
-         and nothing the viewer can change either. This is how every deployment
-         surveyed in A185 annex A does signing today, and it is here so the two
-         approaches can be compared on one service from one service list.
+    <ServiceName>Accessibility Channel</ServiceName>
+    <ProviderName>Thesis</ProviderName>
+  </Service>
 
-         AccessibilityAttributes sits in ContentAttributes, not in RelatedMaterial:
-         here the signing is a property of the media itself, not of a linked
-         application. Closed=false: burnt in, cannot be switched off. -->
-    <ServiceInstance priority="2">
-      <DisplayName>Accessibility Channel (burnt-in signer)</DisplayName>
+  <!-- Channel 4: the conventional approach — signer composited into the picture
+       by the encoder. No application, no second decoder, nothing for the client
+       to support, and nothing the viewer can move, resize or switch off.
+
+       A separate Service rather than a second ServiceInstance of channel 3.
+       Modelling it as an instance is arguably the better fit for the standard —
+       one service, two renditions, the client picks — but no client here picks:
+       the reference client takes the lowest priority number among available
+       instances (channel-common.js getServiceInstance) and never consults
+       SigningAttributes, so the burnt-in rendition could not be reached at all.
+       As its own channel it is watchable, and flipping between 3 and 4 is the
+       comparison this project exists to make. It is also how signing actually
+       ships: every deployment surveyed in A185 annex A uses a separate channel.
+
+       Reconsider this if instance selection from a stored accessibility
+       preference is ever implemented — that is the case a second instance
+       would demonstrate, and this Service is what it would become. -->
+  <Service version="1">
+    <UniqueIdentifier>tag:lmmfe.org,2026:accessibility4</UniqueIdentifier>
+    <ServiceInstance priority="1">
       <ContentAttributes>
-        <!-- Unprefixed: inside ContentAttributes the element is declared by the
-             DVB-I schema, so it sits in the servicediscovery namespace even
-             though its type comes from TV-Anytime. In RelatedMaterial above the
-             same element is declared by the TVA schema and is tva:-prefixed. -->
+        <!-- AccessibilityAttributes sits in ContentAttributes, not in
+             RelatedMaterial as on channel 3: here the signing is a property of
+             the media itself rather than of a linked application. Unprefixed
+             because inside ContentAttributes the element is declared by the
+             DVB-I schema; inside RelatedMaterial the TVA schema declares it and
+             it takes the tva: prefix. -->
         <AccessibilityAttributes>
           <tva:SigningAttributes>
             <!-- 1.4.12 = H.264-high-L4, as encoded by ffmpeg_stream_commands/burned.
                  The signer is part of this video, so the codec of the picture is
                  the codec of the access service. -->
             <tva:Coding href="urn:dvb:metadata:cs:VideoCodecCS:2022:1.4.12"/>
-            <tva:SignLanguage>ysl</tva:SignLanguage><!-- verify: same code as instance 1 -->
+            <tva:SignLanguage>ysl</tva:SignLanguage><!-- verify: same code as channel 3 -->
+            <!-- Burnt in: the viewer cannot switch it off. -->
             <tva:Closed>false</tva:Closed>
           </tva:SigningAttributes>
         </AccessibilityAttributes>
@@ -137,8 +151,7 @@
         </UriBasedLocation>
       </DASHDeliveryParameters>
     </ServiceInstance>
-
-    <ServiceName>Accessibility Channel</ServiceName>
+    <ServiceName>Accessibility Channel (burnt-in signer)</ServiceName>
     <ProviderName>Thesis</ProviderName>
   </Service>
 
