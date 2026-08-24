@@ -173,7 +173,14 @@
     // the terminal would suspend the channel (TS 102 796 clause A.2.1) —
     // blacking out the programme this overlay exists to accompany. Refusing on
     // any HbbTV stack makes that structurally impossible rather than unlikely.
-    appPresentsMain = !interpreterOnlyMode && !terminalPresentsMain && !HbbTV.isHbbTV;
+    // ?main= is an explicit instruction to present the picture, and the only
+    // thing that lifts the refusal above. An emulator carries an HbbTV user
+    // agent while nothing is actually presenting anything, so without this the
+    // app correctly declines to play and leaves a blank screen with no clock —
+    // safe on a television, useless on a desk. Launched from the AIT there is
+    // never a ?main=, so a real terminal still cannot reach this path.
+    appPresentsMain = !interpreterOnlyMode && !terminalPresentsMain &&
+                      (!HbbTV.isHbbTV || !!urlParams.main);
     if (appPresentsMain) {
       mainDashPlayer = createDashPlayer(mainVideo, currentMainUrl, true);
     } else {
@@ -572,9 +579,20 @@
     diagEl.style.display = 'block';
 
     var c = capabilities();
-    var clock = terminalPresentsMain ? 'none (terminal presents)'
-              : interpreterOnlyMode  ? 'none (interpreter-only)'
-              : String(masterClock().toFixed(2)) + 's';
+    // Always report the number masterClock() actually returns, whatever the
+    // mode. Labelling interpreter-only as "none" described the launch path
+    // rather than the clock, and hid the one value worth seeing in exactly the
+    // mode the application is launched in from an AIT — where the clock does
+    // exist, read from the hosting page. Subtitles depend on it directly, so
+    // the loop position and active cue are shown beside it.
+    var clockValue = masterClock();
+    var clock = clockValue
+      ? clockValue.toFixed(2) + 's (loop ' + (clockValue % LOOP_SECONDS).toFixed(2) + 's' +
+        ', cue ' + activeCueIndex + '/' + subtitleCues.length + ')'
+      : '0 — no clock (' +
+        (terminalPresentsMain ? 'terminal presents'
+         : appPresentsMain    ? 'own player not started'
+                              : 'no host video') + ')';
 
     diagEl.textContent =
       'decoder=' + decoderMode + '  render=' + (stats ? stats.renderPath : '-') + '\n' +
@@ -727,7 +745,29 @@
   // this: it is an AdaptationSet inside the manifest, so it loops with the
   // content for free. That asymmetry is the whole argument for in-band
   // subtitles — this constant is the price of not having them.
-  var LOOP_SECONDS  = 249.8;
+  //
+  // 249.856, not the 249.8 the video runs for. ffmpeg's -stream_loop advances
+  // the timeline by the longest stream, and the AAC audio outlasts the video:
+  // 11712 frames x 1024 samples / 48000 Hz = 249.856 s, against 6245 frames at
+  // 25 fps = 249.8 s.
+  //
+  // Those 56 ms are invisible in one loop and fatal across many, because the
+  // error is multiplied by the loop count rather than staying put. Measured
+  // against the live stream after five days of encoder uptime — 1670 loops —
+  // the cues were 94 seconds out. Restarting the encoder made them correct
+  // again, which is what confirmed the cause: a fresh stream has no loops to
+  // multiply, so any value works until the drift builds back up.
+  //
+  // Verified by fetching a segment at a known presentation time, decoding its
+  // first frame, and matching it against the source at the position this value
+  // predicts — the same frame, where 249.8 pointed 94 seconds away.
+  //
+  // This is a property of the encoded source, not of the standard. Re-measure
+  // whenever video_content changes:
+  //   ffprobe -v error -select_streams a:0 -show_entries stream=nb_frames \
+  //           video_content/source_combined.mp4
+  //   loop = nb_frames * 1024 / 48000
+  var LOOP_SECONDS  = 249.856;
   var SUBTITLE_URL  = 'subtitles/main_slv.srt';
 
   var subtitleCues    = [];
@@ -787,7 +827,14 @@
   function updateSubtitles() {
     if (!subtitleEl) { return; }
     if (!subtitlesOn || !subtitleCues.length) {
-      if (activeCueIndex !== -1) { subtitleEl.style.display = 'none'; activeCueIndex = -1; }
+      // Hide unconditionally rather than only when a cue was active. Guarding
+      // on activeCueIndex looks like a cheap way to avoid touching the DOM
+      // every tick, but toggleSubtitles() clears that index before calling
+      // here, so the guard was always false at exactly the moment it mattered
+      // and the cue on screen when the viewer switched subtitles off stayed
+      // there for good.
+      subtitleEl.style.display = 'none';
+      activeCueIndex = -1;
       return;
     }
 
