@@ -163,7 +163,12 @@ public class MainActivity extends AppCompatActivity implements Observer {
             url = savedInstanceState.getString("url");
         if (url == null && isRoot && appConfig != null) {
             url = appConfig.getInitialUrl();
-            String platformString = "?platform=";
+            // The initial URL may already carry a query — the overlay build is
+            // started on index.html?interpreter=<mpd>. Appending a second "?"
+            // would fold platform and date into the interpreter parameter,
+            // leaving the application with an unusable stream address.
+            String separator = url.contains("?") ? "&" : "?";
+            String platformString = separator + "platform=";
             platformString = platformString + "mobile";
             if (url.endsWith("/")) {
                 url = url.substring(0, url.length() - 1);
