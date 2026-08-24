@@ -4,7 +4,7 @@
   <ProviderName>Thesis</ProviderName>
   <LCNTableList>
     <LCNTable>
-      <LCN channelNumber="1" serviceRef="tag:lmmfe.org,2026:accessibility1"/>
+      <!-- <LCN channelNumber="1" serviceRef="tag:lmmfe.org,2026:accessibility1"/> -->
       <LCN channelNumber="2" serviceRef="tag:lmmfe.org,2026:accessibility2"/>
       <LCN channelNumber="3" serviceRef="tag:lmmfe.org,2026:accessibility3"/>
       <!-- Without an LCN entry a Service is invisible: the client is configured
@@ -21,7 +21,7 @@
        ServiceListId of the matching offering in backend/slepr-master.xml. -->
 
   <!-- Channel 1: VOD only (no interpreter) -->
-  <Service version="1">
+  <!-- <Service version="1">
     <UniqueIdentifier>tag:lmmfe.org,2026:accessibility1</UniqueIdentifier>
     <ServiceInstance priority="1">
       <DASHDeliveryParameters>
@@ -32,7 +32,7 @@
     </ServiceInstance>
     <ServiceName>VOD Channel</ServiceName>
     <ProviderName>Thesis</ProviderName>
-  </Service>
+  </Service> -->
 
   <!-- Channel 2: Live only (no interpreter) -->
   <Service version="1">

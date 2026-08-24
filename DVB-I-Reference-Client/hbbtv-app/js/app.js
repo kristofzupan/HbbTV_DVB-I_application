@@ -25,7 +25,7 @@
   var mainVideo         = document.getElementById('mainVideo');
   var interpreterVideo  = document.getElementById('interpreterVideo');
   var interpreterCanvas = document.getElementById('interpreterCanvas');
-  var subtitleTrack     = document.getElementById('subtitleTrack');
+  var subtitleEl        = document.getElementById('subtitles');
   var overlay           = document.getElementById('interpreterOverlay');
 
   // ── Decoder state ──────────────────────────────────────────────────────────
@@ -61,8 +61,13 @@
     ml: 'Middle left', mc: 'Middle centre', mr: 'Middle right',
     bl: 'Bottom left', bc: 'Bottom centre', br: 'Bottom right'
   };
-  var posRow = 2; // bottom
-  var posCol = 2; // right  (default: br)
+  // Top right by default. The bottom of the screen belongs to subtitles: they
+  // are authored in the conventional bottom region, a terminal renders them
+  // with no knowledge of this overlay, and nothing in DVB-I or HbbTV lets the
+  // two negotiate the space. The overlay is the part under our control, so it
+  // is the part that moves. The viewer can still put it anywhere.
+  var posRow = 0; // top
+  var posCol = 2; // right  (default: tr)
 
   // 7 size steps — widths only (vw); height computed from detected video ratio
   var SIZE_WIDTHS    = [10, 15, 20, 27, 35, 44, 55];
@@ -598,11 +603,21 @@
   var VK_YELLOW = 405; var VK_YELLOW2 = 185;
   var VK_BLUE   = 406; var VK_BLUE2   = 186;
   var VK_0      = 48;
+  var VK_ENTER  = 13;
+  // Not part of any keyset mask — requested separately, and a terminal may
+  // refuse it, which is why OK toggles subtitles as well.
+  var VK_SUBTITLE = HbbTV.VK_SUBTITLE;
 
   document.addEventListener('keydown', function (e) {
     var key = e.keyCode || e.which;
 
     switch (key) {
+      case VK_SUBTITLE:
+      case VK_ENTER:
+        toggleSubtitles();
+        e.preventDefault();
+        break;
+
       case VK_0:
         diagForced = !diagForced;
         if (!diagForced && diagEl) { diagEl.style.display = 'none'; }
@@ -632,7 +647,7 @@
 
       case VK_BLUE:
       case VK_BLUE2:
-        posRow = 2; posCol = 2; applyPosition();
+        posRow = 0; posCol = 2; applyPosition();   // top right, as at startup
         sizeIdx = DEFAULT_SIZE_IDX; applySize();
         showToast('Reset');
         e.preventDefault();
@@ -692,16 +707,129 @@
   };
   mainVideo.addEventListener('playing', onFirstPlay);
 
-  // ── Subtitle: show by default ─────────────────────────────────────────────
-  function enableSubtitles() {
-    if (subtitleTrack && subtitleTrack.track) {
-      subtitleTrack.track.mode = 'showing';
+  // ── Subtitles ─────────────────────────────────────────────────────────────
+  // Rendered by this application rather than the terminal, and signalled in the
+  // service list as SubtitleCarriageCS "app" — a real value in the DVB scheme,
+  // not a workaround. The conformant alternative is an EBU-TT-D AdaptationSet
+  // in the manifest, which ffmpeg's DASH muxer cannot produce: it labels a TTML
+  // track as contentType="audio" and refuses WebVTT outright. See
+  // subtitles/main_slv.xml for the EBU-TT-D the conformant path would carry.
+  //
+  // The cost is real and belongs in any honest account of this: the viewer's
+  // font size, colour and contrast preferences live in the television's own
+  // subtitle settings, and an application that draws its own text does not
+  // inherit them. What it buys is that one renderer owns both access services,
+  // so the signer and the subtitles can be positioned with knowledge of each
+  // other — which nothing in DVB-I or HbbTV otherwise allows.
+
+  // The programme loops, and the cues come from outside the stream, so they
+  // have to be folded back into the loop by hand. The signer needs none of
+  // this: it is an AdaptationSet inside the manifest, so it loops with the
+  // content for free. That asymmetry is the whole argument for in-band
+  // subtitles — this constant is the price of not having them.
+  var LOOP_SECONDS  = 249.8;
+  var SUBTITLE_URL  = 'subtitles/main_slv.srt';
+
+  var subtitleCues    = [];
+  var subtitlesOn     = true;
+  var activeCueIndex  = -1;
+
+  function parseSrt(text) {
+    var cues = [];
+    var blocks = text.replace(/^﻿/, '').replace(/\r\n?/g, '\n').split(/\n{2,}/);
+    for (var b = 0; b < blocks.length; b++) {
+      var lines = blocks[b].split('\n').filter(function (l) { return l.trim() !== ''; });
+      if (!lines.length) { continue; }
+      var i = /^\d+$/.test(lines[0].trim()) ? 1 : 0;
+      if (i >= lines.length) { continue; }
+      var m = /^(.+?)\s*-->\s*(.+?)$/.exec(lines[i]);
+      if (!m) { continue; }
+      var body = lines.slice(i + 1);
+      if (!body.length) { continue; }
+      cues.push({ start: srtSeconds(m[1]), end: srtSeconds(m[2]), lines: body });
+    }
+    return cues;
+  }
+
+  function srtSeconds(t) {
+    var m = /^(\d{2}):(\d{2}):(\d{2})[,.](\d{3})$/.exec(t.trim());
+    if (!m) { return NaN; }
+    return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) + Number(m[4]) / 1000;
+  }
+
+  function loadSubtitles() {
+    if (typeof fetch === 'undefined') {
+      // Older terminal browsers predate fetch; the overlay still works without
+      // subtitles, so degrade rather than taking the application down with us.
+      console.warn('[Subs] no fetch() — subtitles unavailable');
+      return;
+    }
+    fetch(SUBTITLE_URL)
+      .then(function (r) {
+        if (!r.ok) { throw new Error('HTTP ' + r.status); }
+        return r.text();
+      })
+      .then(function (text) {
+        subtitleCues = parseSrt(text);
+        console.log('[Subs] ' + subtitleCues.length + ' cues loaded');
+        if (!subtitleCues.length) { showError('Subtitle file contained no cues'); }
+      })
+      .catch(function (e) {
+        // Silence here would look identical to a programme with no dialogue.
+        console.warn('[Subs] load failed:', e && e.message);
+        showError('Subtitles could not be loaded: ' + (e && e.message));
+      });
+  }
+
+  // Called from the same animation loop that presents the signer, so both
+  // access services are driven by one clock and cannot disagree about where
+  // the programme is.
+  function updateSubtitles() {
+    if (!subtitleEl) { return; }
+    if (!subtitlesOn || !subtitleCues.length) {
+      if (activeCueIndex !== -1) { subtitleEl.style.display = 'none'; activeCueIndex = -1; }
+      return;
+    }
+
+    var clock = masterClock();
+    if (!clock) {
+      // No clock: on a terminal there is no presentation timeline to read, the
+      // same gap that leaves the signer unsynchronised. Showing cues paced
+      // against nothing would put the wrong words on screen, which is worse
+      // than showing none.
+      if (activeCueIndex !== -1) { subtitleEl.style.display = 'none'; activeCueIndex = -1; }
+      return;
+    }
+
+    var t = clock % LOOP_SECONDS;
+    var found = -1;
+    for (var i = 0; i < subtitleCues.length; i++) {
+      if (t >= subtitleCues[i].start && t < subtitleCues[i].end) { found = i; break; }
+    }
+    if (found === activeCueIndex) { return; }
+
+    activeCueIndex = found;
+    if (found === -1) {
+      subtitleEl.style.display = 'none';
+    } else {
+      subtitleEl.innerHTML = subtitleCues[found].lines
+        .map(function (l) {
+          return l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        })
+        .join('<br>');
+      subtitleEl.style.display = 'block';
     }
   }
-  enableSubtitles();
-  if (subtitleTrack) {
-    subtitleTrack.addEventListener('load', enableSubtitles);
+
+  function toggleSubtitles() {
+    subtitlesOn = !subtitlesOn;
+    activeCueIndex = -1;
+    updateSubtitles();
+    showToast('Subtitles ' + (subtitlesOn ? 'on' : 'off'));
   }
+
+  loadSubtitles();
+  setInterval(updateSubtitles, 200);
 
   // ── Boot ──────────────────────────────────────────────────────────────────
   // HbbTV applications start hidden; without this the overlay runs but nothing
@@ -716,9 +844,15 @@
   // and YELLOW resize it, BLUE resets, the arrows move it and BACK closes the
   // controls. Nothing else is requested — keys an application holds are keys
   // the terminal can no longer use for its own UI.
+  // NUMERIC is deliberately absent: on a terminal the number keys are how a
+  // viewer types a channel number, and an application holding them takes that
+  // away. The subtitle key is asked for separately because it belongs to no
+  // mask, and a terminal that refuses it costs nothing here — OK toggles
+  // subtitles too.
   HbbTV.requestKeys(
     HbbTV.KEYSET.RED | HbbTV.KEYSET.GREEN | HbbTV.KEYSET.YELLOW |
-    HbbTV.KEYSET.BLUE | HbbTV.KEYSET.NAVIGATION
+    HbbTV.KEYSET.BLUE | HbbTV.KEYSET.NAVIGATION,
+    [HbbTV.VK_SUBTITLE]
   );
 
   var bootEl = document.getElementById('dvbi-boot-status');

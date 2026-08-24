@@ -110,6 +110,32 @@ html.overlay-mode, body.overlay-mode {
 }
 
 /* ── Hint bar ────────────────────────────────────────────────────────────── */
+/* ── Subtitles ───────────────────────────────────────────────────────────── */
+/* Drawn by the application, not the terminal. Geometry mirrors the region in
+   subtitles/main_slv.xml so the two renderings agree: the title-safe area with
+   text sitting on its bottom edge. Sits above the video and below the
+   interpreter overlay, and clear of the hint bar along the very bottom.
+   Hidden until a cue is active — app.js sets display. */
+#subtitles {
+  position: fixed;
+  left: 10%;
+  right: 10%;
+  bottom: 10%;
+  z-index: 8;
+  display: none;
+  text-align: center;
+  font-family: Arial, Helvetica, sans-serif;
+  /* Relative to the viewport, so the text keeps its proportion of the picture
+     on a 720p panel as on a 1080p one. ~3.2% of width is about 61px at 1920,
+     which is the size broadcast subtitles are normally authored at. */
+  font-size: 3.2vw;
+  line-height: 1.25;
+  color: #FFFFFF;
+  /* Per-line box rather than one block behind the whole cue: short second lines
+     would otherwise sit on a full-width band. */
+  text-shadow: 0 0 6px #000, 0 0 6px #000, 0 0 6px #000;
+}
+
 #hintBar {
   position: fixed;
   bottom: 0;

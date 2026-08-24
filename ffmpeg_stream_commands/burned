@@ -29,15 +29,17 @@ fi
 mkdir -p "$OUT"
 
 # The signer is the second video track of the source, already cropped and
-# scaled to 480x480 by ./mux-source. overlay places it bottom right with a
-# 32 px margin, which is where the application puts it by default.
+# scaled to 480x480 by ./mux-source. overlay places it top right with a 32 px
+# margin, which is where the application puts it by default — the two channels
+# are only a fair comparison if the signer is in the same place on both. The
+# bottom of the screen is left to subtitles.
 #
 # One encode, one video AdaptationSet: no Role descriptor, because there is
 # nothing for a client to select. shortest=0 keeps the main picture running if
 # the signer track ever ends early.
 exec ffmpeg \
   -stream_loop -1 -re -i "$SRC" \
-  -filter_complex "[0:v:0][0:v:1]overlay=W-w-32:H-h-32:shortest=0[out]" \
+  -filter_complex "[0:v:0][0:v:1]overlay=W-w-32:32:shortest=0[out]" \
   -map "[out]" -map 0:a:0 \
   -c:v libx264 -preset veryfast -sc_threshold 0 -g 100 -keyint_min 100 \
   -profile:v high -level 4.0 -b:v 3000k -maxrate 3300k -bufsize 6000k \

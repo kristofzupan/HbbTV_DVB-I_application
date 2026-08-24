@@ -41,20 +41,26 @@
   <!-- Main video: fullscreen background. Used when the app is responsible for
        playback (browser, or launched with ?main=); unused once bound to a
        terminal's own presentation. -->
-  <video id="mainVideo" playsinline muted>
-    <track id="subtitleTrack" kind="subtitles" src="subtitles/sample.vtt" srclang="en" label="English" default>
-  </video>
+  <video id="mainVideo" playsinline muted></video>
 
-  <!-- Interpreter overlay: visible by default, bottom-right -->
-  <div id="interpreterOverlay" class="interpreter-overlay interpreter-position-br">
+  <!-- Interpreter overlay: visible by default, top-right — the bottom of the
+       screen is where subtitles are rendered. Must match posRow/posCol in
+       app.js, which is what every later repositioning is applied from. -->
+  <div id="interpreterOverlay" class="interpreter-overlay interpreter-position-tr">
     <video id="interpreterVideo" playsinline muted></video>
     <canvas id="interpreterCanvas" width="960" height="720"></canvas>
   </div>
 
+  <!-- Subtitles, drawn by this application. Positioned to match the region the
+       EBU-TT-D document declares (subtitles/main_slv.xml): the title-safe area,
+       text pinned to its bottom edge. Kept in the conventional place — it is
+       the interpreter overlay that moved to the top right to make room. -->
+  <div id="subtitles"></div>
+
   <div id="toast"></div>
 
   <!-- Persistent hint bar -->
-  <div id="hintBar">RED=on/off &nbsp;|&nbsp; &#9664;&#9654;=move &nbsp;|&nbsp; &#9650;&#9660;=row &nbsp;|&nbsp; GREEN=bigger &nbsp;|&nbsp; YELLOW=smaller &nbsp;|&nbsp; BLUE=reset</div>
+  <div id="hintBar">RED=on/off &nbsp;|&nbsp; &#9664;&#9654;=move &nbsp;|&nbsp; &#9650;&#9660;=row &nbsp;|&nbsp; GREEN=bigger &nbsp;|&nbsp; YELLOW=smaller &nbsp;|&nbsp; BLUE=reset &nbsp;|&nbsp; OK/SUBTITLE=subtitles</div>
 
   <!-- Error display -->
   <div id="errorOverlay"></div>

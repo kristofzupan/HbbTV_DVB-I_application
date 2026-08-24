@@ -57,6 +57,14 @@
   };
 
   /**
+   * The subtitle key is not part of any keyset mask. It belongs to the "other
+   * keys" list, which HbbTV 2.0.1 added a second setValue() argument for, and
+   * a terminal is free to refuse it. 460 is the OIPF DAE value, used when the
+   * terminal does not expose a KeyEvent object to read it from.
+   */
+  hbbtv.VK_SUBTITLE = (typeof KeyEvent !== 'undefined' && KeyEvent.VK_SUBTITLE) || 460;
+
+  /**
    * Ask the terminal to deliver the keys this application actually handles.
    *
    * A terminal keeps every key to itself until an application requests it by
@@ -78,13 +86,26 @@
    *
    * Returns true if the terminal accepted the call.
    */
-  hbbtv.requestKeys = function (mask) {
+  hbbtv.requestKeys = function (mask, otherKeys) {
     var app = getOwnerApplication();
     if (!app) { return false; }
     try {
       var keyset = app.privateData.keyset;
       var wanted = mask | (keyset.value || 0);
-      keyset.setValue(wanted);
+      // The two-argument form is HbbTV 2.0.1 and later. Older terminals throw
+      // on the extra argument, and losing the colour keys to gain a subtitle
+      // key we may not be granted anyway is a bad trade — so fall back.
+      if (otherKeys && otherKeys.length) {
+        try {
+          keyset.setValue(wanted, otherKeys);
+        } catch (e) {
+          console.warn('[HbbTV] keyset rejected other keys (' + (e && e.message) +
+                       ') — retrying without them');
+          keyset.setValue(wanted);
+        }
+      } else {
+        keyset.setValue(wanted);
+      }
       console.log('[HbbTV] keyset requested 0x' + mask.toString(16) +
                   ', now 0x' + (keyset.value || wanted).toString(16));
       return true;
