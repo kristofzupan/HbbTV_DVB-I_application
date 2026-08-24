@@ -710,6 +710,17 @@
     console.log('[App] HbbTV application shown and activated');
   }
 
+  // A terminal delivers no key events until an application asks for them, so
+  // every handler below is dead on a TV without this. The four colour keys plus
+  // NAVIGATION are exactly the set app.js binds: RED toggles the overlay, GREEN
+  // and YELLOW resize it, BLUE resets, the arrows move it and BACK closes the
+  // controls. Nothing else is requested — keys an application holds are keys
+  // the terminal can no longer use for its own UI.
+  HbbTV.requestKeys(
+    HbbTV.KEYSET.RED | HbbTV.KEYSET.GREEN | HbbTV.KEYSET.YELLOW |
+    HbbTV.KEYSET.BLUE | HbbTV.KEYSET.NAVIGATION
+  );
+
   var bootEl = document.getElementById('dvbi-boot-status');
   if (bootEl) { bootEl.style.display = 'none'; }
 

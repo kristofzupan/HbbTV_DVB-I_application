@@ -48,6 +48,53 @@
   };
 
   /**
+   * Key masks from OIPF DAE table 8-3, as used by HbbTV (TS 102 796 clause
+   * 10.2.2). NAVIGATION covers the arrows, OK and BACK.
+   */
+  hbbtv.KEYSET = {
+    RED: 0x1, GREEN: 0x2, YELLOW: 0x4, BLUE: 0x8,
+    NAVIGATION: 0x10, VCR: 0x20, SCROLL: 0x40, INFO: 0x80, NUMERIC: 0x100
+  };
+
+  /**
+   * Ask the terminal to deliver the keys this application actually handles.
+   *
+   * A terminal keeps every key to itself until an application requests it by
+   * mask: without this call the colour buttons change nothing and the arrows
+   * drive the terminal's own UI, so the handlers in app.js never fire and the
+   * overlay cannot be moved, resized or switched off. In a browser there is no
+   * such gate, which is why this is invisible until the app reaches a TV.
+   *
+   * Which application this configures depends on how the overlay was launched.
+   * Started from the XML AIT it is its own HbbTV application and this sets its
+   * own keyset. Hosted in an iframe by the DVB-I client it is not a separate
+   * application at all — getOwnerApplication returns the *client's* object, and
+   * this widens the client's mask instead, which is what makes the keys reach
+   * the iframe the client has already focused. Both paths want the same call.
+   *
+   * The existing mask is preserved: on the hosted path the client registered
+   * keys for its own UI, and replacing its value outright would break the
+   * channel bar and EPG to fix the overlay.
+   *
+   * Returns true if the terminal accepted the call.
+   */
+  hbbtv.requestKeys = function (mask) {
+    var app = getOwnerApplication();
+    if (!app) { return false; }
+    try {
+      var keyset = app.privateData.keyset;
+      var wanted = mask | (keyset.value || 0);
+      keyset.setValue(wanted);
+      console.log('[HbbTV] keyset requested 0x' + mask.toString(16) +
+                  ', now 0x' + (keyset.value || wanted).toString(16));
+      return true;
+    } catch (e) {
+      console.warn('[HbbTV] keyset.setValue failed:', e && e.message);
+      return false;
+    }
+  };
+
+  /**
    * Bind to whatever the terminal is currently presenting, and leave it alone.
    *
    * This is what makes the app a well-behaved type 1.1 linked application: the
