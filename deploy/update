@@ -185,14 +185,26 @@ LIST="$BASE/backend/servicelists/thesis.xml"
 check "service list declares signing three times" \
       "$(count "$LIST" "<tva:SigningAttributes>")" 3
 
-# Instance-level, inside ContentAttributes: channels 3 and 4. This is what a
-# client reads when matching a viewer's accessibility preferences against
-# service instances (A185r1 clauses 5.1.1 and 5.2.1). Losing it on channel 3 is
-# invisible in the client's own UI but ranks the burnt-in rendition above the
-# switchable one, which is the wrong way round and was the bug this check exists
-# to catch.
-check "signing declared on the service instances" \
-      "$(count "$LIST" "<AccessibilityAttributes>")" 2
+# Instance-level, inside ContentAttributes: now all three channels. Signing is
+# on 3 and 4 only, but subtitles are on every service, so every ServiceInstance
+# carries one of these blocks. This is what a client reads when matching a
+# viewer's accessibility preferences against service instances (A185r1 clauses
+# 5.1.1 and 5.2.1). Losing it on channel 3 is invisible in the client's own UI
+# but ranks the burnt-in rendition above the switchable one, which is the wrong
+# way round and was the bug this check exists to catch.
+check "accessibility declared on the service instances" \
+      "$(count "$LIST" "<AccessibilityAttributes>")" 3
+
+# Every service carries the same EBU-TT-D track: channels 2 and 3 share one MPD
+# and package-loop cuts the burnt-in channel from the same cues. Declaring it on
+# all three is what keeps them comparable — if subtitles were announced on some
+# services and not others, a difference between channels 3 and 4 could be the
+# subtitles rather than the signer, which is the comparison this project exists
+# to make. The stream carrying cues is not enough on its own: a client decides
+# what to list, and which service to pick for a viewer who wants subtitles,
+# before it fetches a segment.
+check "service list declares subtitles three times" \
+      "$(count "$LIST" "<tva:SubtitleAttributes>")" 3
 
 # Application-level, inside RelatedMaterial: channel 3 only. Describes what the
 # linked application provides, and carries the AppInformation that has no

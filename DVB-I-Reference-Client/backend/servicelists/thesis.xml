@@ -23,6 +23,49 @@
   <Service version="1">
     <UniqueIdentifier>tag:lmmfe.org,2026:accessibility2</UniqueIdentifier>
     <ServiceInstance priority="1">
+      <!-- The stream has carried EBU-TT-D since the loop was packaged, but until
+           this block existed nothing in the service list said so. A DVB-I client
+           can only learn about an access service from the list: it decides what
+           to show in the guide, and whether to select this service for a viewer
+           whose stored preference is "subtitles", before it has fetched a single
+           segment. Announcing subtitles only inside the MPD makes them
+           undiscoverable until after tuning, which is the wrong way round.
+
+           All three services carry the same subtitle track — channels 2 and 3
+           share combined/stream.mpd, and the burnt-in channel is packaged from
+           the same cues — so all three declare it. The values below are
+           identical everywhere and are explained once, here. -->
+      <ContentAttributes>
+        <AccessibilityAttributes>
+          <!-- Order matters: the schema sequences SubtitleAttributes before
+               SigningAttributes, so on channels 3 and 4 this block comes first. -->
+          <tva:SubtitleAttributes>
+            <!-- Carriage 3 = in ISOBMFF. The cues travel in the fMP4 segments
+                 themselves as stpp.ttml.etd1, not as a sidecar file the client
+                 would fetch separately (4 = standalone) and not burnt into the
+                 picture (5 = open). -->
+            <tva:Carriage href="urn:tva:metadata:cs:SubtitleCarriageCS:2023:3"/>
+            <!-- 3.2.1 = EBU-TT-D 1.0, the format scripts/srt-to-ebu-tt-d.js
+                 writes. An EBU-TT-D document does not state its own revision, so
+                 this claims the lower of the two the CS offers: anything that
+                 reads 1.0.1 also reads 1.0, whereas claiming 1.0.1 would assert
+                 conformance to a revision nothing here has been checked against. -->
+            <tva:Coding href="urn:tva:metadata:cs:SubtitleCodingFormatCS:2023:3.2.1"/>
+            <!-- "sl" to match lang="sl" on the subtitle AdaptationSet in the MPD,
+                 which is what a client matches against when it picks a track. -->
+            <tva:SubtitleLanguage>sl</tva:SubtitleLanguage>
+            <!-- 2 = hard of hearing. Slovenian speech, Slovenian text: these are
+                 not a translation (1), they exist so a viewer who cannot hear the
+                 audio can follow the dialogue. -->
+            <tva:Purpose href="urn:tva:metadata:cs:SubtitlePurposeCS:2023:2"/>
+            <!-- False, and deliberately not optimistic. This flags a track
+                 authored to be read aloud as spoken subtitles; ours is a plain
+                 dialogue transcript with no speaker labels and no non-speech
+                 annotation, and nothing has been done to make it suitable. -->
+            <tva:SuitableForTTS>false</tva:SuitableForTTS>
+          </tva:SubtitleAttributes>
+        </AccessibilityAttributes>
+      </ContentAttributes>
       <DASHDeliveryParameters>
         <UriBasedLocation contentType="application/dash+xml">
           <dvbi-types:URI>http://localhost:9080/stream/live/combined/stream.mpd</dvbi-types:URI>
@@ -104,6 +147,16 @@
            takes the tva: prefix — the same split as on channel 4. -->
       <ContentAttributes>
         <AccessibilityAttributes>
+          <!-- Same subtitle track as channel 2 — the two share this MPD. Values
+               are explained on channel 2. First in the block because the schema
+               sequences SubtitleAttributes ahead of SigningAttributes. -->
+          <tva:SubtitleAttributes>
+            <tva:Carriage href="urn:tva:metadata:cs:SubtitleCarriageCS:2023:3"/>
+            <tva:Coding href="urn:tva:metadata:cs:SubtitleCodingFormatCS:2023:3.2.1"/>
+            <tva:SubtitleLanguage>sl</tva:SubtitleLanguage>
+            <tva:Purpose href="urn:tva:metadata:cs:SubtitlePurposeCS:2023:2"/>
+            <tva:SuitableForTTS>false</tva:SuitableForTTS>
+          </tva:SubtitleAttributes>
           <tva:SigningAttributes>
             <!-- 1.1.10 = H.264-base-L3.1: the codec of the signer track itself, the
                  AdaptationSet carrying Role="sign" in the manifest below. Channel 4
@@ -158,6 +211,18 @@
              DVB-I schema; inside RelatedMaterial the TVA schema declares it and
              it takes the tva: prefix. -->
         <AccessibilityAttributes>
+          <!-- The burnt-in channel is cut from the same cues by package-loop, so
+               it carries the identical subtitle track. Values explained on
+               channel 2. Only the signer differs between 3 and 4; subtitles are
+               constant across all three, which is what makes them a fair
+               comparison. -->
+          <tva:SubtitleAttributes>
+            <tva:Carriage href="urn:tva:metadata:cs:SubtitleCarriageCS:2023:3"/>
+            <tva:Coding href="urn:tva:metadata:cs:SubtitleCodingFormatCS:2023:3.2.1"/>
+            <tva:SubtitleLanguage>sl</tva:SubtitleLanguage>
+            <tva:Purpose href="urn:tva:metadata:cs:SubtitlePurposeCS:2023:2"/>
+            <tva:SuitableForTTS>false</tva:SuitableForTTS>
+          </tva:SubtitleAttributes>
           <tva:SigningAttributes>
             <!-- 1.4.12 = H.264-high-L4, as encoded by ffmpeg_stream_commands/burned.
                  The signer is part of this video, so the codec of the picture is
