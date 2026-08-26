@@ -58,6 +58,15 @@ done
 # -preset slow because this runs once and nothing is waiting for it. The live
 # encoders had to use veryfast and ultrafast to keep up; at the same bitrate
 # this is better than either, and identical across both channels.
+#
+# The signer track is the exception, and -refs:v:1 1 below is why. It is not
+# decoded by the television: an application decodes it in JavaScript, through
+# Broadway, so its cost is paid frame by frame in a software decoder rather than
+# in silicon. -preset slow raises x264's reference frames from 1 to 5, which the
+# hardware decoder handling the picture does not notice and Broadway very much
+# does — it stuttered every few seconds until this was pinned back. The profile
+# is already constrained to Baseline for the same decoder, so this is the same
+# concession applied to the same constraint.
 GOP="-g 100 -keyint_min 100 -sc_threshold 0"
 PRESET=${PRESET:-"-preset slow"}
 
@@ -70,6 +79,7 @@ ffmpeg -y -loglevel warning \
   -c:v libx264 $PRESET $GOP -pix_fmt yuv420p \
   -profile:v:0 high     -level:v:0 4.0 -b:v:0 3000k -maxrate:v:0 3300k -bufsize:v:0 6000k \
   -profile:v:1 baseline -level:v:1 3.1 -b:v:1 800k  -maxrate:v:1 900k  -bufsize:v:1 1600k \
+  -refs:v:1 1 \
   -c:a aac -b:a 128k -ar 48000 -ac 2 \
   -movflags +faststart \
   "$OUT_COMBINED"
