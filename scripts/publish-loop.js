@@ -76,6 +76,35 @@ function link(from, to) {
   fs.renameSync(tmp, to);
 }
 
+/**
+ * Copy a segment out of the loop with its timestamp moved onto the live
+ * timeline.
+ *
+ * This cannot be a symlink. The packaged segments carry the time of their
+ * position *within* the loop — segment 11 says it begins at 40 s, every time
+ * round — while the manifest places them on a timeline that has been running
+ * since the epoch. Served unchanged, a player is told to present something at
+ * day 237 and handed a buffer that claims to be 40 seconds in, so it appends
+ * the data, finds nothing at the time it wants, and shows black forever. The
+ * signer kept playing throughout because the application decodes NAL units
+ * itself and never looks at a timestamp, which is what made the cause visible.
+ *
+ * The fix is the one thing a continuously running encoder gave for free: a
+ * baseMediaDecodeTime that always increases. Adding a whole number of loops
+ * to it is enough, and normalise-segments.py has already guaranteed a single
+ * 64-bit tfdt and no sidx holding a second copy of the same number.
+ */
+function serveSegment(from, to, offsetTicks) {
+  const buf = fs.readFileSync(from);
+  const i = buf.indexOf('tfdt');
+  if (i < 0) throw new Error(`no tfdt in ${from}`);
+  buf.writeBigUInt64BE(buf.readBigUInt64BE(i + 8) + offsetTicks, i + 8);
+
+  const tmp = to + '.tmp';
+  fs.writeFileSync(tmp, buf);
+  fs.renameSync(tmp, to);
+}
+
 function publish(name, reps) {
   const dir = path.join(LIVE, name);
   fs.mkdirSync(dir, { recursive: true });
@@ -85,13 +114,22 @@ function publish(name, reps) {
 
   const expected = new Set(['stream.mpd']);
   for (const rep of reps) {
+    // The init segment carries no timing, so it can stay a link.
     const init = `init-stream${rep.id}.m4s`;
     expected.add(init);
     link(path.join(LOOP, name, init), path.join(dir, init));
+
     for (let n = oldest; n <= latest; n++) {
       const live = liveName(rep.id, n);
       expected.add(live);
-      link(path.join(LOOP, name, loopFile(rep.id, n)), path.join(dir, live));
+      const target = path.join(dir, live);
+      // Only the newest segment is new on any given tick; rewriting the whole
+      // window every four seconds would copy 30 MB to no purpose.
+      if (fs.existsSync(target)) continue;
+
+      const loopNumber = BigInt(Math.floor((n - 1) / COUNT));
+      const offset = loopNumber * BigInt(loop.loopSeconds) * BigInt(rep.timescale);
+      serveSegment(path.join(LOOP, name, loopFile(rep.id, n)), target, offset);
     }
   }
 

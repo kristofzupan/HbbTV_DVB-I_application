@@ -131,6 +131,13 @@ SUB_SEGS=$(place_subs "$LOOP/combined" "$SUB_IDX_COMBINED")
 place_subs "$LOOP/burned" "$SUB_IDX_BURNED" >/dev/null
 rm -rf "$_tmp"
 
+# The segments still carry timestamps from inside the loop, which the publisher
+# rewrites as it serves them. This puts them all in the one shape that makes
+# that a single fixed-width write: no sidx to keep in agreement, and a 64-bit
+# tfdt in every representation.
+echo "== Normalising segments"
+python3 "$ROOT/scripts/normalise-segments.py" "$LOOP/combined" "$LOOP/burned"
+
 # What the publisher needs to describe these files in a manifest, recorded here
 # so that nothing has to probe media at serving time. Roles are assigned by
 # position, which is what the -map order in ./prerender fixes: video, audio,
@@ -165,6 +172,20 @@ for name, sub_idx in (("combined", int(sub_c)), ("burned", int(sub_b))):
     reps.append({"id": str(sub_idx), "contentType": "text",
                  "mimeType": "application/mp4", "codecs": "stpp.ttml.etd1",
                  "bandwidth": 2500, "lang": "sl", "role": "subtitle"})
+
+    # The media timescale of each track, read out of its init segment. The
+    # publisher needs it to turn "this is the nth time round the loop" into the
+    # number of ticks to add to a segment's baseMediaDecodeTime, and the three
+    # tracks do not agree on it — 12800 for video, 48000 for audio, 1000 for
+    # the subtitles as MP4Box writes them.
+    import struct
+    for r in reps:
+        init = open(os.path.join(loop, name, f"init-stream{r['id']}.m4s"), "rb").read()
+        j = init.find(b"mdhd")
+        ver = init[j + 4]
+        r["timescale"] = struct.unpack(">I", init[j + 20:j + 24] if ver == 1
+                                       else init[j + 16:j + 20])[0]
+
     out["presentations"][name] = reps
 
 with open(os.path.join(loop, "loop.json"), "w") as f:
