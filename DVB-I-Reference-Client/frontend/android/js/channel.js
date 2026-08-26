@@ -282,10 +282,11 @@ var LIVE_DELAY_SEC = 12;
 
 Channel.prototype.applyLiveDelay = function () {
   try {
+    // Nested under delay, not a flat streaming.liveDelay: dash.js v5 moved it
+    // there and warns on the old spelling for every service change.
     player.updateSettings({
       streaming: {
         delay: { liveDelay: LIVE_DELAY_SEC },
-        liveDelay: LIVE_DELAY_SEC,
       },
     });
   } catch (e) {

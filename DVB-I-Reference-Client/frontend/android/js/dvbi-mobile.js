@@ -177,7 +177,13 @@ window.onload = function () {
   // carrying them — the opposite of an accessibility feature, which is a thing
   // the viewer turns on. The subtitle key and the track list both switch them
   // back on, and the terminal remembers the choice for the session.
-  player.setTextDefaultEnabled(false);
+  //
+  // A setting rather than setTextDefaultEnabled(): that method was removed in
+  // dash.js v5, which is the version player.html loads. Calling it threw, and
+  // because this runs inside window.onload the throw took every line after it
+  // with it — including attachTTMLRenderingDiv below, which is why the console
+  // then filled with "Impossible to display subtitles".
+  player.updateSettings({ streaming: { text: { defaultEnabled: false } } });
   player.on("error", function (e) {
     console.log(e);
     $("#notification").show();

@@ -578,21 +578,38 @@
               if (parsed.segStartSec[wi] <= masterT) wantIdx = wi;
             }
 
+            // Decode the segment *after* the one the master clock is inside,
+            // not the one containing it. The containing segment has the master
+            // somewhere in its middle, so every frame before that point is
+            // already late and onPictureDecoded drops it. How much of the
+            // segment survived depended on where the master happened to fall,
+            // which is why the overlay played part of each segment and froze
+            // for the rest — the hitch every few seconds. Position was never
+            // the problem: the decoder held the same slot in the window for
+            // twenty consecutive refreshes without once repositioning.
+            //
+            // One segment later, every frame is still in the future, so all of
+            // them arrive with a positive delay and are shown in order. The
+            // cost is up to four more seconds behind the main picture, which
+            // does not show: the overlay is judged against that picture, and
+            // the live delay holds both back together.
+            var targetIdx = Math.min(wantIdx + 1, parsed.segStartSec.length - 1);
+
             var contIdx = (self._lastSegNum < 0)
               ? -1 : (self._lastSegNum + 1 - parsed.startNumber);
 
-            if (contIdx < 0 || contIdx < wantIdx - 1 || contIdx > wantIdx + 2) {
+            if (contIdx < 0 || contIdx < targetIdx - 1 || contIdx > targetIdx + 2) {
               // Never started, fell out of the window, or wildly ahead: the only
               // way back is to jump and restart the worker.
-              startIdx = wantIdx;
+              startIdx = targetIdx;
               if (self._lastSegNum >= 0) {
                 console.log('[WasmDecoder] repositioning to master clock',
-                            masterT.toFixed(2), 's — segment idx', wantIdx);
+                            masterT.toFixed(2), 's — segment idx', targetIdx);
                 self._ptsQueue.length = 0;
                 self._createPlayer();
                 self._initFetched = false;
               }
-            } else if (contIdx >= urls.length || contIdx > wantIdx + LEAD_SEGS) {
+            } else if (contIdx >= urls.length || contIdx > targetIdx + LEAD_SEGS) {
               // Caught up with the live edge, or far enough ahead of the master
               // clock. Wait for more content instead of re-decoding what we have;
               // repositioning here is what made the decoder restart every refresh.
