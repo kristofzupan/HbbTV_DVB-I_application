@@ -257,25 +257,39 @@ function hideLinkedApp() {
   }
 }
 
-// Seconds behind the live edge to hold playback when a linked application is
-// present. An accessibility overlay decodes the signer in software from
-// segments that are already published, so it can only follow a picture that is
-// not sitting on the live edge. A few seconds of latency buys an overlay that
-// can stay aligned; without it the two can never meet. Matches LIVE_DELAY_SEC
-// in the application.
-var LINKED_APP_LIVE_DELAY_SEC = 12;
+// Seconds behind the live edge to hold playback.
+//
+// Two independent reasons arrive at the same number.
+//
+// An accessibility overlay decodes the signer in software from segments that
+// are already published, so it can only follow a picture that is not sitting on
+// the live edge. A few seconds of latency buys an overlay that can stay
+// aligned; without it the two can never meet. That is why this matches
+// LIVE_DELAY_SEC in the application.
+//
+// The encoder also does not publish on a metronome. Intervals between the
+// manifest's publishTime values were measured at 3.7 s to 5.5 s against a
+// nominal 4 s, with periodic 8 s gaps where two segments appear at once — the
+// host runs two live x264 encodes, so ffmpeg falls behind and catches up in
+// bursts. The manifest advertises suggestedPresentationDelay of one segment,
+// which leaves a client no headroom for a burst at all.
+//
+// The second reason applies to every service, not only to those carrying an
+// application, so the delay is no longer conditional on one being present:
+// holding it back only for the overlay left the plain live services stalling on
+// exactly the bursts the overlay was protected from.
+var LIVE_DELAY_SEC = 12;
 
-Channel.prototype.applyParallelAppLatency = function () {
-  if (!this.getParallelApp(this.serviceInstance)) return;
+Channel.prototype.applyLiveDelay = function () {
   try {
     player.updateSettings({
       streaming: {
-        delay: { liveDelay: LINKED_APP_LIVE_DELAY_SEC },
-        liveDelay: LINKED_APP_LIVE_DELAY_SEC,
+        delay: { liveDelay: LIVE_DELAY_SEC },
+        liveDelay: LIVE_DELAY_SEC,
       },
     });
   } catch (e) {
-    console.log("Could not set live delay for linked application: " + e.message);
+    console.log("Could not set live delay: " + e.message);
   }
 };
 
@@ -375,7 +389,7 @@ Channel.prototype.channelSelected = function () {
       $("#parentalpin").hide();
       if (self.serviceInstance) {
         // Set before attaching the source, so the delay applies from the start.
-        self.applyParallelAppLatency();
+        self.applyLiveDelay();
         playDASH(player, self.serviceInstance);
       }
       // Started after playback, in parallel with it — the client keeps the

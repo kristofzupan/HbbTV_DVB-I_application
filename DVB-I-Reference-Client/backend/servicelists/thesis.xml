@@ -4,7 +4,6 @@
   <ProviderName>Thesis</ProviderName>
   <LCNTableList>
     <LCNTable>
-      <!-- <LCN channelNumber="1" serviceRef="tag:lmmfe.org,2026:accessibility1"/> -->
       <LCN channelNumber="2" serviceRef="tag:lmmfe.org,2026:accessibility2"/>
       <LCN channelNumber="3" serviceRef="tag:lmmfe.org,2026:accessibility3"/>
       <!-- Without an LCN entry a Service is invisible: the client is configured
@@ -19,20 +18,6 @@
        would be rejected by the DVB-I service list validator, even though the
        schema types it only as anyURI. The id here must stay equal to the
        ServiceListId of the matching offering in backend/slepr-master.xml. -->
-
-  <!-- Channel 1: VOD only (no interpreter) -->
-  <!-- <Service version="1">
-    <UniqueIdentifier>tag:lmmfe.org,2026:accessibility1</UniqueIdentifier>
-    <ServiceInstance priority="1">
-      <DASHDeliveryParameters>
-        <UriBasedLocation contentType="application/dash+xml">
-          <dvbi-types:URI>http://localhost:9080/stream/test_stream_seja.mpd</dvbi-types:URI>
-        </UriBasedLocation>
-      </DASHDeliveryParameters>
-    </ServiceInstance>
-    <ServiceName>VOD Channel</ServiceName>
-    <ProviderName>Thesis</ProviderName>
-  </Service> -->
 
   <!-- Channel 2: Live only (no interpreter) -->
   <Service version="1">
@@ -63,10 +48,21 @@
            only draws the interpreter overlay. Per A177 table 7 a MediaUri declared as
            application/vnd.dvb.ait+xml must resolve to an XML AIT, not to the app page.
 
-           AccessibilityAttributes belongs inside RelatedMaterial (A177 clause 4.5.3 and
-           figure 2a), not in ContentAttributes: it describes the access service that this
-           linked application provides. Closed=true because the viewer switches the signer
-           on and off through the app rather than it being burnt into the video. -->
+           AccessibilityAttributes here, inside RelatedMaterial (A177 clause 4.5.3 and
+           figure 2a), describes the access service that this linked application
+           provides — which is why AppInformation, meaningless for a media component,
+           belongs in this block and not in the one below.
+
+           It does not replace the ContentAttributes declaration that follows. That is
+           the one clients read when adapting service instance priorities to a viewer's
+           accessibility preferences (A185r1 clauses 5.1.1 and 5.2.1). With only this
+           block present, a client asked for in-vision signing finds signing declared on
+           channel 4 and none here, and ranks the burnt-in rendition — the one the viewer
+           cannot switch off — above this one. Closed=true because the viewer switches
+           the signer on and off through the app rather than it being burnt into the
+           video; A185r1 clause 5.1.3.4 provides for exactly that case, an application
+           delivering the feature and switching seamlessly between representations with
+           and without it. -->
       <RelatedMaterial>
         <tva:HowRelated href="urn:dvb:metadata:cs:LinkedApplicationCS:2019:1.1"/>
         <tva:MediaLocator>
@@ -88,11 +84,39 @@
                  Baseline is deliberate: Broadway.js, the software decoder used where
                  WebCodecs is absent, decodes no other profile. -->
             <tva:Coding href="urn:dvb:metadata:cs:VideoCodecCS:2022:1.1.10"/>
-            <tva:SignLanguage>ysl</tva:SignLanguage><!-- verify: ISO 639-3 code for the sign language actually used -->
+            <!-- ISO 639-3 has no code of its own for Slovenian Sign Language: it is
+                 recorded as a dialect of Yugoslav Sign Language, ysl, which is also
+                 where Ethnologue indexes it. -->
+            <tva:SignLanguage>ysl</tva:SignLanguage>
             <tva:Closed>true</tva:Closed>
           </tva:SigningAttributes>
         </tva:AccessibilityAttributes>
       </RelatedMaterial>
+
+      <!-- What this service instance provides, as opposed to what the application above
+           is. A client matching a viewer's in-vision signing preference against service
+           instances reads this (A185r1 clauses 5.1.1 and 5.2.1); without it the signing
+           on this service is invisible to that matching, however completely the
+           RelatedMaterial block describes the application.
+
+           Unprefixed because inside ContentAttributes the element is declared by the
+           DVB-I schema, whereas inside RelatedMaterial the TVA schema declares it and it
+           takes the tva: prefix — the same split as on channel 4. -->
+      <ContentAttributes>
+        <AccessibilityAttributes>
+          <tva:SigningAttributes>
+            <!-- 1.1.10 = H.264-base-L3.1: the codec of the signer track itself, the
+                 AdaptationSet carrying Role="sign" in the manifest below. Channel 4
+                 declares the codec of its main video instead, because there the signer
+                 is that video. -->
+            <tva:Coding href="urn:dvb:metadata:cs:VideoCodecCS:2022:1.1.10"/>
+            <tva:SignLanguage>ysl</tva:SignLanguage>
+            <!-- Switchable, so closed. See the RelatedMaterial comment above. -->
+            <tva:Closed>true</tva:Closed>
+          </tva:SigningAttributes>
+        </AccessibilityAttributes>
+      </ContentAttributes>
+
       <!-- Main stream — played by the terminal on the type 1.1 path, and by a plain DVB-I
            client with no linked application support. -->
       <DASHDeliveryParameters>
@@ -139,7 +163,7 @@
                  The signer is part of this video, so the codec of the picture is
                  the codec of the access service. -->
             <tva:Coding href="urn:dvb:metadata:cs:VideoCodecCS:2022:1.4.12"/>
-            <tva:SignLanguage>ysl</tva:SignLanguage><!-- verify: same code as channel 3 -->
+            <tva:SignLanguage>ysl</tva:SignLanguage><!-- same code as channel 3 -->
             <!-- Burnt in: the viewer cannot switch it off. -->
             <tva:Closed>false</tva:Closed>
           </tva:SigningAttributes>
