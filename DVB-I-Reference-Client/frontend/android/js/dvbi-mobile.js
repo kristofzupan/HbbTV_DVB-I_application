@@ -884,7 +884,12 @@ function showSubtitles() {
   for (var i = 0; i < subtitles.length; i++) {
     var container = document.createElement("div");
     container.classList.add("row");
-    if (subtitles[i].id == current.id) {
+    // current is null whenever subtitles are switched off, which is the state
+    // this list is usually opened from. The loop never ran before because the
+    // stream carried no text track for it to list, so the missing guard could
+    // not be reached; adding an EBU-TT-D track to the manifest reached it on the
+    // first pass. The "Off" row below already tests for the same null.
+    if (current && subtitles[i].id == current.id) {
       container.classList.add("selected_track");
     }
     var track = document.createElement("a");

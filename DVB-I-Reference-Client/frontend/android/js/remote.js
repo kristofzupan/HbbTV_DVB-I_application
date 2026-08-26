@@ -37,6 +37,8 @@ var REMOTE_KEYS = {
   right: { codes: [39], names: ["ArrowRight"] },
   enter: { codes: [13], names: ["Enter"] },
   back: { codes: [461, 27, 8], names: ["Escape", "Backspace", "GoBack"] },
+  // VK_SUBTITLE from TS 102 796, and what Android sends as KEYCODE_CAPTIONS.
+  subtitle: { codes: [460, 175], names: ["Subtitle", "ClosedCaptionToggle"] },
 };
 
 function remoteKeyName(event) {
@@ -137,6 +139,46 @@ function changeChannel(step) {
   if (typeof resetHideTimeout == "function") resetHideTimeout();
 }
 
+// Switch the subtitle track straight on or off, rather than opening the track
+// list the pointer UI opens. The list is a column of links, and reaching a link
+// needs the focus model this file deliberately does not have; a viewer pressing
+// SUBTITLE on a remote wants subtitles, not a menu they cannot move around in.
+//
+// Selecting the first track rather than remembering one: the stream carries a
+// single EBU-TT-D track, and a chooser is only worth having when there is a
+// choice. If more languages are added this becomes a menu and needs the focus
+// model with it.
+function toggleSubtitleTrack() {
+  if (typeof player == "undefined" || !player) return;
+  var tracks;
+  try {
+    tracks = player.getTracksFor("text") || [];
+  } catch (e) {
+    return; // no source attached yet
+  }
+  if (!tracks.length) {
+    notify("No subtitles on this service");
+    return;
+  }
+  var on = player.isTextEnabled();
+  player.setTextTrack(on ? -1 : 0);
+  notify(on ? "Subtitles off" : "Subtitles on: " + (tracks[0].lang || "unknown"));
+}
+
+// The client already has somewhere to say things; the alternative is a viewer
+// pressing a key on a television and having no way to tell whether it did
+// anything.
+function notify(text) {
+  var el = document.getElementById("notification");
+  if (!el) return;
+  el.textContent = text;
+  el.style.display = "";
+  clearTimeout(notify._timer);
+  notify._timer = setTimeout(function () {
+    el.style.display = "none";
+  }, 3000);
+}
+
 function onRemoteKeyDown(event) {
   var key = remoteKeyName(event);
   if (!key) return;
@@ -154,6 +196,12 @@ function onRemoteKeyDown(event) {
 
   if (key == "channelUp" || key == "channelDown") {
     changeChannel(key == "channelUp" ? 1 : -1);
+    event.preventDefault();
+    return;
+  }
+
+  if (key == "subtitle") {
+    toggleSubtitleTrack();
     event.preventDefault();
     return;
   }
