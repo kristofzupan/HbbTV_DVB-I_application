@@ -10,9 +10,26 @@
 # or resize it. Everything ./combined gains is what this loses.
 #
 # Reads the same source file as ./combined, so both streams show the same
-# programme with the same signer at the same size and position, and any
-# difference a viewer sees is a difference between the two approaches rather
-# than between two encodes.
+# programme with the same signer at the same size and position.
+#
+# The two are no longer encoded alike, and any comparison has to say so. This
+# one runs at -preset ultrafast where ./combined runs at veryfast, because the
+# host cannot encode both in real time: with both at veryfast the combined
+# encoder logged speed=0.999x with duplicated frames, and its segments were
+# published in bursts of two rather than one every four seconds, which stalled
+# playback on the channels that carry it. Stopping this encoder made those
+# channels well again, which is what identified the cause.
+#
+# So a viewer comparing the two channels is now seeing a difference of encoder
+# preset as well as a difference of approach. At a fixed 3000k that is visible:
+# ultrafast gives up B-frames, CABAC and most analysis. Do not draw quality
+# conclusions across the two channels while this stands.
+#
+# The real fix is to stop encoding at run time at all. Nothing in either stream
+# changes between loops, so both could be pre-rendered once and stream-copied
+# here — measured at 0.04 s of CPU to package a minute of content, against an
+# encode that by definition takes a minute. That returns both channels to the
+# same preset and removes the jitter at source. See ./mux-source.
 set -e
 
 # Resolve the repository from this script's own location, so the same file works
@@ -41,7 +58,7 @@ exec ffmpeg \
   -stream_loop -1 -re -i "$SRC" \
   -filter_complex "[0:v:0][0:v:1]overlay=W-w-32:32:shortest=0[out]" \
   -map "[out]" -map 0:a:0 \
-  -c:v libx264 -preset veryfast -sc_threshold 0 -g 100 -keyint_min 100 \
+  -c:v libx264 -preset ultrafast -sc_threshold 0 -g 100 -keyint_min 100 \
   -profile:v high -level 4.0 -b:v 3000k -maxrate 3300k -bufsize 6000k \
   -c:a aac -b:a 128k -ar 48000 \
   -f dash -format_options "movflags=+cmaf" -seg_duration 4 -window_size 15 -use_template 1 -use_timeline 1 \
