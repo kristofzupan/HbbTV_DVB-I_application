@@ -771,7 +771,27 @@
   var SUBTITLE_URL  = 'subtitles/main_slv.srt';
 
   var subtitleCues    = [];
-  var subtitlesOn     = true;
+  // Whether this application draws the subtitles itself.
+  //
+  // It no longer needs to. The stream carries them as an EBU-TT-D track in the
+  // manifest, encapsulated in ISO BMFF per ETSI TS 103 285 clause 7.1.1, so the
+  // terminal renders them and the viewer's own subtitle settings — size, colour,
+  // contrast — apply to them. That is the whole reason for putting them in band,
+  // and drawing over the top of them would take it away again.
+  //
+  // Leaving them on was also actively wrong once the loop length changed:
+  // LOOP_SECONDS below is 249.856, measured from the old source, and the loop is
+  // now exactly 248 s. Cues folded into the wrong length slip 1.856 s further
+  // out on every pass.
+  //
+  // Kept behind a flag rather than deleted, because an application that renders
+  // both access services can position the signer and the subtitles with
+  // knowledge of each other, and nothing in DVB-I or HbbTV lets a terminal and
+  // an application negotiate that. Turning this on demonstrates the alternative;
+  // it is not the conformant path.
+  var APP_RENDERED_SUBTITLES = false;
+
+  var subtitlesOn     = APP_RENDERED_SUBTITLES;
   var activeCueIndex  = -1;
 
   function parseSrt(text) {
@@ -869,14 +889,25 @@
   }
 
   function toggleSubtitles() {
+    // The terminal owns the subtitles now, and it offers its own control for
+    // them. Claiming the key here would leave the viewer pressing it and seeing
+    // nothing happen, which is worse than the key doing nothing at all.
+    if (!APP_RENDERED_SUBTITLES) {
+      showToast('Subtitles are provided by the television');
+      return;
+    }
     subtitlesOn = !subtitlesOn;
     activeCueIndex = -1;
     updateSubtitles();
     showToast('Subtitles ' + (subtitlesOn ? 'on' : 'off'));
   }
 
-  loadSubtitles();
-  setInterval(updateSubtitles, 200);
+  // Neither the fetch nor the 5 Hz timer is worth running when the terminal is
+  // the one drawing the subtitles.
+  if (APP_RENDERED_SUBTITLES) {
+    loadSubtitles();
+    setInterval(updateSubtitles, 200);
+  }
 
   // ── Boot ──────────────────────────────────────────────────────────────────
   // HbbTV applications start hidden; without this the overlay runs but nothing
