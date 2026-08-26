@@ -208,10 +208,25 @@ for d in combined burned; do
     dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$_probe" 2>/dev/null)
     rm -f "$_probe"
     printf '  %-9s stream %s: %3s segments, %ss\n' "$d" "$rep" "$n" "$dur"
-    case "$dur" in
-      "$DURATION"|"$DURATION".000000) ;;
-      *) echo "    FAIL: decodes to $dur, expected $DURATION" >&2; fail=1 ;;
-    esac
+
+    # Allow one audio frame of slack, and no more. An AAC frame is 1024 samples
+    # — 21.3 ms at 48 kHz — and some ffmpeg versions carry one extra across the
+    # copy where others do not: 9.0.1 packages this source to exactly 248 s,
+    # the ffmpeg in Ubuntu noble to 248.021333.
+    #
+    # Slack rather than exactness because of how the publisher loops. It maps a
+    # segment number to a loop position per representation, ((n-1) mod 62) + 1,
+    # so every representation returns to its first segment after 62 segments no
+    # matter what its media says. A frame of surplus is therefore a seam of
+    # 21 ms once per loop, not an offset that grows — unlike the 56 ms per loop
+    # that compounded into 94 seconds when the subtitles were replayed against a
+    # measured length. Anything larger than a frame is not that, and still fails.
+    awk -v got="$dur" -v want="$DURATION" -v slack=0.0214 '
+      BEGIN {
+        d = got - want;
+        if (d < 0) d = -d;
+        exit (d <= slack) ? 0 : 1;
+      }' || { echo "    FAIL: decodes to $dur, expected $DURATION (±0.0214)" >&2; fail=1; }
   done
 done
 # Counts and durations cannot see a subtitle track whose segments are in the
