@@ -2,7 +2,7 @@
 # Bring a deployment host to the latest commit, in one step.
 #
 #   sh deploy/update              update to origin's latest commit
-#   sh deploy/update --source     also rebuild video_content/source_combined.mp4
+#   sh deploy/update --source     also re-encode the sources and repackage the loop
 #   sh deploy/update --no-pull    re-apply the current commit without fetching
 #
 # Doing this by hand goes wrong in a specific, repeatable way: the configuration
@@ -42,8 +42,8 @@ sudo -v
 # ── 1. Stop the encoder ───────────────────────────────────────────────────────
 # Before touching the working tree: the unit runs a script out of it, and a
 # restart is needed anyway for any change to reach the running process.
-say "Stopping encoder"
-sudo systemctl stop dvbi-encoder || true
+say "Stopping publisher"
+sudo systemctl stop dvbi-publisher || true
 
 # ── 2. Discard generated rewrites, then update ────────────────────────────────
 say "Updating working tree"
@@ -81,20 +81,35 @@ BASE=$(sed -n 's/.*\$install_location *= *"\([^"]*\)".*/\1/p' \
         DVB-I-Reference-Client/backend/configuration.php)
 [ -n "$BASE" ] || { echo "Could not read install_location" >&2; exit 1; }
 
-# ── 4. Rebuild the muxed source when its inputs moved ─────────────────────────
-# Both video tracks must come from one file or the signer drifts from the picture
-# over days of uptime — see ffmpeg_stream_commands/combined.
-if [ ! -f video_content/source_combined.mp4 ]; then
-  echo "source_combined.mp4 missing — building it"
+# ── 4. Rebuild the loop when its inputs moved ─────────────────────────────────
+# Two costs, kept apart. prerender re-encodes both 248 s sources and takes
+# minutes; package-loop only cuts existing files and takes seconds. A change to
+# the subtitles needs the second but not the first, so asking for the whole
+# thing whenever a cue moves would make editing subtitles needlessly expensive.
+REPACKAGE=no
+
+if [ ! -f video_content/source_combined.mp4 ] || [ ! -f video_content/source_burned.mp4 ]; then
+  echo "pre-rendered sources missing — building them"
   REBUILD_SOURCE=yes
-elif changed "ffmpeg_stream_commands/mux-source"; then
-  echo "mux-source changed — rebuilding source_combined.mp4"
+elif changed "ffmpeg_stream_commands/prerender"; then
+  echo "prerender changed — re-encoding the sources"
   REBUILD_SOURCE=yes
 fi
 
+if changed "ffmpeg_stream_commands/package-loop" \
+   || changed "DVB-I-Reference-Client/hbbtv-app/subtitles"; then
+  REPACKAGE=yes
+fi
+
 if [ "$REBUILD_SOURCE" = yes ]; then
-  say "Building combined source"
-  sh ffmpeg_stream_commands/mux-source
+  say "Re-encoding sources"
+  sh ffmpeg_stream_commands/prerender
+  REPACKAGE=yes
+fi
+
+if [ "$REPACKAGE" = yes ] || [ ! -f DVB-I-Reference-Client/stream/loop/loop.json ]; then
+  say "Packaging the loop"
+  sh ffmpeg_stream_commands/package-loop
 fi
 
 # ── 5. Host-level units, only when their committed form changed ───────────────
@@ -105,29 +120,31 @@ if changed "deploy/nginx-dvbi.conf"; then
   sudo systemctl reload nginx
 fi
 
-if changed "deploy/dvbi-encoder.service"; then
+if changed "deploy/dvbi-publisher.service"; then
   say "Installing systemd unit"
-  sudo cp deploy/dvbi-encoder.service /etc/systemd/system/
+  sudo cp deploy/dvbi-publisher.service /etc/systemd/system/
   sudo systemctl daemon-reload
 fi
 
-# ── 6. Clear stale segments ───────────────────────────────────────────────────
-# ffmpeg removes these on a clean exit, but not when it is killed. Leftovers from
-# a previous timeline are served alongside the new one and decode as corruption.
-# Both output directories, because one encoder now writes both: leftovers under
-# burned were never cleared while it ran as its own unmanaged service, and they
-# decode as corruption against a new timeline exactly as the combined ones do.
-say "Clearing old segments"
-for d in combined burned; do
-  rm -f "DVB-I-Reference-Client/stream/live/$d"/*.m4s \
-        "DVB-I-Reference-Client/stream/live/$d"/*.m4s.tmp \
-        "DVB-I-Reference-Client/stream/live/$d"/*.mpd \
-        "DVB-I-Reference-Client/stream/live/$d"/*.mpd.tmp 2>/dev/null || true
-done
+# ── 6. Check the loop exists ──────────────────────────────────────────────────
+# Nothing is encoded or packaged at serving time, so the segments have to be
+# there before the publisher can start. Building them is deliberately not done
+# here: prerender re-encodes the source and takes minutes, and it needs
+# video_content, which a deployment host may not even carry.
+#
+# Clearing stale segments used to be a step here. The publisher deletes anything
+# the manifest does not currently promise, every four seconds, so leftovers from
+# the encoders it replaced are swept on its first run.
+if [ ! -f DVB-I-Reference-Client/stream/loop/loop.json ]; then
+  echo "No packaged loop found. Build it once with:" >&2
+  echo "  sh ffmpeg_stream_commands/prerender" >&2
+  echo "  sh ffmpeg_stream_commands/package-loop" >&2
+  exit 1
+fi
 
 # ── 7. Start and verify ───────────────────────────────────────────────────────
-say "Starting encoder"
-sudo systemctl start dvbi-encoder
+say "Starting publisher"
+sudo systemctl start dvbi-publisher
 sleep 15
 
 say "Verifying"
@@ -196,10 +213,10 @@ else
   FAIL=1
 fi
 
-if systemctl is-active --quiet dvbi-encoder; then
-  printf '  ok   encoder running\n'
+if systemctl is-active --quiet dvbi-publisher; then
+  printf '  ok   publisher running\n'
 else
-  printf '  FAIL encoder not running\n'
+  printf '  FAIL publisher not running\n'
   FAIL=1
 fi
 
