@@ -1,4 +1,16 @@
-# Runs the combined DASH encoder as a supervised service.
+# Runs the DASH encoder as a supervised service.
+#
+# One unit, not two: ffmpeg_stream_commands/combined produces both the overlay
+# and the burnt-in stream from one source, so that a viewer switching between
+# the channels lands at the same moment of the programme. Run as separate
+# services they each set their own availabilityStartTime and loop on their own
+# phase, and the channels sit hours apart.
+#
+# This replaces dvbi-encoder-burned.service. To retire that one on a host where
+# it is still installed:
+#   sudo systemctl disable --now dvbi-encoder-burned
+#   sudo rm /etc/systemd/system/dvbi-encoder-burned.service
+#   sudo systemctl daemon-reload
 #
 # Install:
 #   sudo cp deploy/dvbi-encoder.service /etc/systemd/system/
@@ -7,10 +19,11 @@
 #   systemctl status dvbi-encoder
 #
 # Restart=always matters: ffmpeg runs with -remove_at_exit, so when it stops it
-# deletes every segment and the channel goes black with nothing to bring it back.
+# deletes every segment and the channels go black with nothing to bring them
+# back. All three channels now depend on this one process.
 
 [Unit]
-Description=DVB-I combined DASH encoder (main picture + sign language)
+Description=DVB-I DASH encoder (overlay and burnt-in signing channels)
 After=network.target
 
 [Service]

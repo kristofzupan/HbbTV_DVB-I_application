@@ -114,11 +114,16 @@ fi
 # ── 6. Clear stale segments ───────────────────────────────────────────────────
 # ffmpeg removes these on a clean exit, but not when it is killed. Leftovers from
 # a previous timeline are served alongside the new one and decode as corruption.
+# Both output directories, because one encoder now writes both: leftovers under
+# burned were never cleared while it ran as its own unmanaged service, and they
+# decode as corruption against a new timeline exactly as the combined ones do.
 say "Clearing old segments"
-rm -f DVB-I-Reference-Client/stream/live/combined/*.m4s \
-      DVB-I-Reference-Client/stream/live/combined/*.m4s.tmp \
-      DVB-I-Reference-Client/stream/live/combined/*.mpd \
-      DVB-I-Reference-Client/stream/live/combined/*.mpd.tmp 2>/dev/null || true
+for d in combined burned; do
+  rm -f "DVB-I-Reference-Client/stream/live/$d"/*.m4s \
+        "DVB-I-Reference-Client/stream/live/$d"/*.m4s.tmp \
+        "DVB-I-Reference-Client/stream/live/$d"/*.mpd \
+        "DVB-I-Reference-Client/stream/live/$d"/*.mpd.tmp 2>/dev/null || true
+done
 
 # ── 7. Start and verify ───────────────────────────────────────────────────────
 say "Starting encoder"
@@ -148,6 +153,12 @@ check() {
 MPD="$BASE/stream/live/combined/stream.mpd"
 ROLES=$(curl -sf --max-time 10 "$MPD" | grep -cE 'value="(main|sign)"') || ROLES=0
 check "MPD declares both main and sign roles" "$ROLES" 2
+
+# The burnt-in channel comes out of the same encoder now, so a manifest here is
+# also the evidence that the second output survived the restart. Counting the
+# type rather than fetching a segment keeps this cheap.
+BURNED=$(curl -sf --max-time 10 "$BASE/stream/live/burned/stream.mpd" | grep -cF 'type="dynamic"') || BURNED=0
+check "burnt-in channel is live" "$BURNED" 1
 
 LIST="$BASE/backend/servicelists/thesis.xml"
 
