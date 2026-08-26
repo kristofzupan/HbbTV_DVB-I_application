@@ -17,6 +17,15 @@ var serviceList = null;
 var language_settings = null;
 var modalClosedCallback = null;
 
+// The service list the client presents when the viewer has not chosen one.
+//
+// Derived from INSTALL_LOCATION rather than written out, because
+// scripts/start-dvbi-reference-client.js rewrites configuration.js from a fixed
+// template on every deployment: a host name put there by hand is lost on the
+// next `deploy/update`. Set to "" to restore the reference client's original
+// behaviour of asking the viewer to pick a list first.
+var DEFAULT_SERVICE_LIST = INSTALL_LOCATION + "/backend/servicelist.php?list=thesis.xml";
+
 //TODO use MSE-EME to determine actual DRM support, although
 //support also depends on the audio and video codecs.
 //For now, use hardcoded widevine for android client
@@ -122,6 +131,12 @@ window.onload = function () {
     );
   } else if (serviceList) {
     listSelected(serviceList, true);
+  } else if (DEFAULT_SERVICE_LIST) {
+    // A television has no pointer, and the screen this dialog sends the viewer
+    // to is reachable by click only, so on a TV the original first run is a dead
+    // end. Presenting the deployment's own list instead means the client starts
+    // on a service; the viewer can still choose another from the settings.
+    listSelected(DEFAULT_SERVICE_LIST, true);
   } else {
     showModalDialog(
       "<img src='images/icons-128.png'/><br/>" +
