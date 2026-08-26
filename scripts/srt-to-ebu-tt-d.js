@@ -22,10 +22,23 @@ const fs = require('fs');
 
 // EBU-TT-D expresses times against the media timeline as HH:MM:SS.mmm.
 // SubRip uses a comma for the decimal separator and is otherwise identical.
+// Hours are written in five digits — 00000:02:03.640 — where two would do.
+//
+// TTML's clock-time allows two or more hour digits, so this is well formed, and
+// nothing reading the document cares how wide the field is. What it buys is
+// that scripts/publish-loop.js can move a cue onto the live timeline by
+// overwriting the digits where they sit, without the string changing length.
+//
+// The alternative is that a time grows from 00:02:03.640 to 5709:21:00.140 as
+// it is offset, which lengthens the document inside the mdat, which changes the
+// sample sizes recorded in trun and the size of the mdat box around them. Three
+// things to keep in agreement, rewritten every four seconds, to save three
+// characters here. Five digits reach 99999 hours, which is eleven years past
+// the publisher's epoch.
 function srtTimeToTtml(t) {
   const m = /^(\d{2}):(\d{2}):(\d{2})[,.](\d{3})$/.exec(t.trim());
   if (!m) { throw new Error(`unparsable timecode: "${t}"`); }
-  return `${m[1]}:${m[2]}:${m[3]}.${m[4]}`;
+  return `${m[1].padStart(5, '0')}:${m[2]}:${m[3]}.${m[4]}`;
 }
 
 function toSeconds(t) {

@@ -94,15 +94,52 @@ function link(from, to) {
  * to it is enough, and normalise-segments.py has already guaranteed a single
  * 64-bit tfdt and no sidx holding a second copy of the same number.
  */
-function serveSegment(from, to, offsetTicks) {
+function serveSegment(from, to, offsetTicks, offsetSeconds, isText) {
   const buf = fs.readFileSync(from);
   const i = buf.indexOf('tfdt');
   if (i < 0) throw new Error(`no tfdt in ${from}`);
   buf.writeBigUInt64BE(buf.readBigUInt64BE(i + 8) + offsetTicks, i + 8);
 
+  if (isText) shiftTtmlTimes(buf, offsetSeconds);
+
   const tmp = to + '.tmp';
   fs.writeFileSync(tmp, buf);
   fs.renameSync(tmp, to);
+}
+
+/**
+ * Move the cue times inside a subtitle segment onto the live timeline.
+ *
+ * Subtitles carry their timing twice: once in the container, as the sample's
+ * baseMediaDecodeTime, and again inside the TTML document as begin and end
+ * attributes against ttp:timeBase="media". Audio and video have only the
+ * container, which is why moving the tfdt was enough for them and is not enough
+ * here. A segment whose sample says 20,553,660 s while its document says
+ * 00:02:03.640 gets its cues thrown away as out of range: dash.js reported the
+ * track present, enabled and showing, with zero cues in it.
+ *
+ * The times are authored five hour digits wide by scripts/srt-to-ebu-tt-d.js so
+ * that this can overwrite them where they lie. Nothing moves, so no sample size
+ * and no box length has to be corrected.
+ */
+const TTML_TIME = /(begin|end)="(\d{5}):(\d{2}):(\d{2})\.(\d{3})"/g;
+
+function shiftTtmlTimes(buf, offsetSeconds) {
+  const text = buf.toString('latin1');
+  const shifted = text.replace(TTML_TIME, (whole, attr, h, m, s, ms) => {
+    const total = Number(h) * 3600 + Number(m) * 60 + Number(s) + offsetSeconds;
+    const hh = String(Math.floor(total / 3600)).padStart(5, '0');
+    const mm = String(Math.floor((total % 3600) / 60)).padStart(2, '0');
+    const ss = String(total % 60).padStart(2, '0');
+    const out = `${attr}="${hh}:${mm}:${ss}.${ms}"`;
+    // Same length or the document has outgrown its hour field, and every sample
+    // size in the segment would be wrong. Louder now than corrupt later.
+    if (out.length !== whole.length) {
+      throw new Error(`TTML time ${out} does not fit the field it replaces`);
+    }
+    return out;
+  });
+  buf.write(shifted, 0, 'latin1');
 }
 
 function publish(name, reps) {
@@ -127,9 +164,11 @@ function publish(name, reps) {
       // window every four seconds would copy 30 MB to no purpose.
       if (fs.existsSync(target)) continue;
 
-      const loopNumber = BigInt(Math.floor((n - 1) / COUNT));
-      const offset = loopNumber * BigInt(loop.loopSeconds) * BigInt(rep.timescale);
-      serveSegment(path.join(LOOP, name, loopFile(rep.id, n)), target, offset);
+      const loopNumber = Math.floor((n - 1) / COUNT);
+      const offsetTicks = BigInt(loopNumber) * BigInt(loop.loopSeconds) * BigInt(rep.timescale);
+      serveSegment(path.join(LOOP, name, loopFile(rep.id, n)), target,
+                   offsetTicks, loopNumber * loop.loopSeconds,
+                   rep.contentType === 'text');
     }
   }
 
