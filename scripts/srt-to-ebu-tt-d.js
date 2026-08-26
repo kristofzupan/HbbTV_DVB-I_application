@@ -81,7 +81,7 @@ function parseSrt(text) {
 function buildEbuTtD(cues, lang) {
   const body = cues.map((c) => {
     const content = c.lines.map(xmlEscape).join('<br/>');
-    return `        <p region="bottom" style="text" begin="${c.begin}" end="${c.end}">` +
+    return `        <p region="bottom" style="para" begin="${c.begin}" end="${c.end}">` +
            `<span style="text">${content}</span></p>`;
   }).join('\n');
 
@@ -102,11 +102,20 @@ function buildEbuTtD(cues, lang) {
       <ttm:title>Subtitles</ttm:title>
     </metadata>
     <styling>
-      <style xml:id="text"
+      <!-- Two styles, and the split matters. A p is block level, so a
+           background on it paints the full width of the region whatever the
+           text is — a bar reaching almost across the picture with a few words
+           floating in the middle of it. Carrying the background on the span
+           instead paints only the text, which is what EBU-TT-D expects and what
+           broadcast subtitles look like: each line boxed to its own length.
+           ebutts:linePadding adds the half-character either side that stops the
+           first and last glyph touching the edge of that box. -->
+      <style xml:id="para"
              tts:fontFamily="sansSerif"
              tts:fontSize="100%"
              tts:lineHeight="125%"
-             tts:textAlign="center"
+             tts:textAlign="center"/>
+      <style xml:id="text"
              tts:color="#FFFFFF"
              tts:backgroundColor="#000000C0"
              ebutts:linePadding="0.5c"/>

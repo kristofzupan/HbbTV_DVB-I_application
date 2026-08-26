@@ -171,6 +171,13 @@ window.onload = function () {
   player = dashjs.MediaPlayer().create();
   player.initialize(video);
   player.setAutoPlay(true);
+
+  // Off until the viewer asks for them. dash.js enables the first text track it
+  // finds, which meant subtitles appeared unbidden the moment the stream began
+  // carrying them — the opposite of an accessibility feature, which is a thing
+  // the viewer turns on. The subtitle key and the track list both switch them
+  // back on, and the terminal remembers the choice for the session.
+  player.setTextDefaultEnabled(false);
   player.on("error", function (e) {
     console.log(e);
     $("#notification").show();
