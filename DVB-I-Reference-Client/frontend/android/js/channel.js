@@ -243,6 +243,18 @@ function showLinkedApp(url) {
   }
   if (frame.getAttribute("src") != url) frame.setAttribute("src", url);
   frame.style.display = "block";
+
+  // Giving the application focus means keys stop arriving at this document, so
+  // the client has to re-assert the ones it owns inside the application's own.
+  // Bound on load because each load is a new document, and again right away for
+  // the case where the frame is only being re-shown and load will not fire.
+  if (typeof bindRemoteToLinkedApp == "function") {
+    frame.onload = function () {
+      bindRemoteToLinkedApp(frame);
+    };
+    bindRemoteToLinkedApp(frame);
+  }
+
   // The application handles the colour keys itself, so give it the focus.
   try {
     frame.contentWindow.focus();
