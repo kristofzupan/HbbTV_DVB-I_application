@@ -531,6 +531,11 @@
     var self = this;
     if (self._stopped) return;
 
+    // When this cycle began, so the pacing below can subtract the time the
+    // manifest and segment fetches actually took instead of assuming they were
+    // free. Measured before the first request for that reason.
+    var cycleStart = Date.now();
+
     fetch(self._mpdUrl)
       .then(function (r) { return r.text(); })
       .then(function (text) {
@@ -657,7 +662,8 @@
           var pending = urls.slice(startIdx, startIdx + 1);
           return self._decodeSegments(pending, parsed.segDurSec,
                                       parsed.startNumber + startIdx,
-                                      parsed.segStartSec[startIdx])
+                                      parsed.segStartSec[startIdx],
+                                      cycleStart)
             .then(function () {
               if (self._stopped) return;
 
@@ -711,7 +717,7 @@
   // inside onPictureDecoded via the global monotonic frame counter.
   // We wait one segment duration before advancing so segments don't overlap and the
   // frame counter stays accurate.
-  WasmDecoder.prototype._decodeNALsPaced = function (nals, segDurSec, segPtsSec) {
+  WasmDecoder.prototype._decodeNALsPaced = function (nals, segDurSec, segPtsSec, cycleStartMs) {
     var self = this;
 
     // Skip SEI NALs (type 6) — they produce no picture
@@ -740,13 +746,46 @@
       if (!self._stopped) self._player.decode(nal);
     });
 
-    // Wait one segment duration before fetching the next segment.
+    // How long to wait before fetching the next segment.
+    //
+    // Sleeping a flat segment duration here is what made the overlay die after a
+    // minute. The sleep began once the manifest and the segment had already been
+    // fetched, so a cycle lasted a segment *plus* the network round trips — about
+    // 4.4 s of wall clock for 4 s of content over the television's wifi. Nothing
+    // ever gave that back, so the decoder's lead over the master clock shrank by
+    // roughly a tenth of a second every cycle. Measured on the television: 100
+    // frames rendered in the first cycle, then 64, 52, 44, 19, 2, then nothing at
+    // all, because once the lead is spent every frame arrives behind the master
+    // and onPictureDecoded drops it. On a desktop the round trips are shorter, so
+    // the same thing happens later rather than not at all.
+    //
+    // With a master clock the wait is therefore an absolute target rather than a
+    // relative sleep: hold until the master reaches the start of the segment just
+    // decoded, which keeps exactly one segment of lead. A cycle that overruns
+    // makes the next wait shorter by the same amount and the lead is restored, so
+    // error corrects itself instead of accumulating. Nothing to do with how the
+    // segments are produced — live encoding would drift identically.
+    var waitMs;
+    var master = self._masterTime();
+    if (master !== null && typeof segPtsSec === 'number' && isFinite(segPtsSec)) {
+      waitMs = (segPtsSec - master) * 1000;
+    } else {
+      // No master clock (the standalone overlay): pace off the wall clock, but
+      // measure from the start of the cycle so the fetches are inside the
+      // segment duration rather than added to it.
+      var elapsed = typeof cycleStartMs === 'number' ? Date.now() - cycleStartMs : 0;
+      waitMs = segDurSec * 1000 - elapsed;
+    }
+    // Never longer than a segment: a clock that reads far ahead must not park the
+    // decoder for minutes. Never negative: behind means fetch now and catch up.
+    waitMs = Math.max(0, Math.min(waitMs, segDurSec * 1000));
+
     return new Promise(function (resolve) {
-      setTimeout(resolve, segDurSec * 1000);
+      setTimeout(resolve, waitMs);
     });
   };
 
-  WasmDecoder.prototype._decodeSegments = function (urls, segDurSec, startSegNum, segPtsSec) {
+  WasmDecoder.prototype._decodeSegments = function (urls, segDurSec, startSegNum, segPtsSec, cycleStartMs) {
     var self = this;
     if (self._stopped || urls.length === 0) return Promise.resolve();
 
@@ -765,7 +804,7 @@
         var nals = extractNALs(buf);
         console.log('[WasmDecoder] seg', segNum, '— NALs:', nals.length, 'bytes:', buf.byteLength);
         self._lastSegNum = segNum;
-        return self._decodeNALsPaced(nals, segDurSec, segPtsSec);
+        return self._decodeNALsPaced(nals, segDurSec, segPtsSec, cycleStartMs);
       })
       .then(function () {
         return self._decodeSegments(rest, segDurSec, segNum + 1, nextPts);
