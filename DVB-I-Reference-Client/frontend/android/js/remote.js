@@ -54,12 +54,33 @@ var REMOTE_KEYS = {
   },
 };
 
+// The button marked TEXT on this television's remote emits Linux KEY_TITLE
+// (0x171), confirmed with getevent on the device against a marker pattern of
+// three TEXT presses followed by red, repeated. The vendor key layout under
+// /vendor/usr/keylayout leaves 0x171 unmapped, so Android hands the WebView no
+// keycode at all: keyCode 0, key "Unidentified", empty code. Nothing identifies
+// it but the absence itself, and the layout cannot be corrected without root.
+//
+// Claiming every unidentified key for subtitles is a deliberate trade. Every
+// button the client uses — digits, colour keys, arrows, channel, and the real
+// captions key — arrives properly identified, so within this application the
+// unidentified one is TEXT. The risk is another unlabelled vendor button
+// sharing the signature and toggling subtitles unexpectedly; the alternative is
+// the button a viewer reaches for doing nothing at all.
+function isUnidentifiedKey(event) {
+  return !event.keyCode && (!event.key || event.key == "Unidentified");
+}
+
 function remoteKeyName(event) {
   var name;
   for (name in REMOTE_KEYS) {
     if (REMOTE_KEYS[name].codes.indexOf(event.keyCode) != -1) return name;
     if (event.key && REMOTE_KEYS[name].names.indexOf(event.key) != -1) return name;
   }
+  // Checked last so a key that identifies itself is always matched on its own
+  // terms first: ClosedCaptionToggle and Teletext also arrive with keyCode 0,
+  // but they carry a name and the loop above resolves them.
+  if (isUnidentifiedKey(event)) return "subtitle";
   return null;
 }
 
