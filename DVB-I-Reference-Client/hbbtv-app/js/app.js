@@ -561,8 +561,18 @@
     var stats = (wasmDecoder && typeof wasmDecoder.getStats === 'function')
       ? wasmDecoder.getStats() : null;
 
-    // Hide once the overlay is demonstrably working, unless asked to stay.
-    if (!diagForced && stats && stats.drawn > 0) {
+    // Hidden unless the viewer asks for it with 0.
+    //
+    // It used to show itself whenever no frame had been drawn yet, which sounds
+    // conservative but meant it appeared during every start and every channel
+    // change — a green debug panel over the picture, in exactly the configuration
+    // a viewer sees. It also stayed up for as long as anything was wrong, which
+    // is the worst moment to be covering the screen with monospace text.
+    //
+    // Nothing is lost by hiding it: real failures surface on their own through
+    // showError() and #errorOverlay, which is a separate element and unaffected
+    // by this. The panel is a development instrument, so it now behaves like one.
+    if (!diagForced) {
       if (diagEl) { diagEl.style.display = 'none'; }
       return;
     }
