@@ -1,0 +1,247 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ServiceList xmlns="urn:dvb:metadata:servicediscovery:2024" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:tva="urn:tva:metadata:2024" xmlns:dvbi-types="urn:dvb:metadata:servicediscovery-types:2023" xsi:schemaLocation="urn:dvb:metadata:servicediscovery:2024 schemas/dvbi_v6.0.xsd" xml:lang="en" id="tag:lmmfe.org,2026:thesis-accessibility" version="6">
+  <Name>Magisterij seznam storitev</Name>
+  <ProviderName>LMMFE</ProviderName>
+  <LCNTableList>
+    <LCNTable>
+      <LCN channelNumber="1" serviceRef="tag:lmmfe.org,2026:dostopnost1"/>
+      <LCN channelNumber="2" serviceRef="tag:lmmfe.org,2026:dostopnost2"/>
+      <!-- Without an LCN entry a Service is invisible: the client is configured
+           with INCLUDE_NON_LCN_CHANNELS = false, and the schema cannot catch it. -->
+      <LCN channelNumber="3" serviceRef="tag:lmmfe.org,2026:dostopnost3"/>
+    </LCNTable>
+  </LCNTableList>
+
+  <!-- Service and list identifiers are tag URIs (RFC 4151): the authority must be
+       a DNS name we control, so that the identifier is globally unique without a
+       registry. "tag:thesis,…" was neither a DNS name nor an e-mail address and
+       would be rejected by the DVB-I service list validator, even though the
+       schema types it only as anyURI. The id here must stay equal to the
+       ServiceListId of the matching offering in backend/slepr-master.xml. -->
+
+  <!-- Channel 2: Live only (no interpreter) -->
+  <Service version="1">
+    <UniqueIdentifier>tag:lmmfe.org,2026:dostopnost1</UniqueIdentifier>
+    <ServiceInstance priority="1">
+      <!-- The stream has carried EBU-TT-D since the loop was packaged, but until
+           this block existed nothing in the service list said so. A DVB-I client
+           can only learn about an access service from the list: it decides what
+           to show in the guide, and whether to select this service for a viewer
+           whose stored preference is "subtitles", before it has fetched a single
+           segment. Announcing subtitles only inside the MPD makes them
+           undiscoverable until after tuning, which is the wrong way round.
+
+           All three services carry the same subtitle track — channels 2 and 3
+           share combined/stream.mpd, and the burnt-in channel is packaged from
+           the same cues — so all three declare it. The values below are
+           identical everywhere and are explained once, here. -->
+      <ContentAttributes>
+        <AccessibilityAttributes>
+          <!-- Order matters: the schema sequences SubtitleAttributes before
+               SigningAttributes, so on channels 3 and 4 this block comes first. -->
+          <tva:SubtitleAttributes>
+            <!-- Carriage 3 = in ISOBMFF. The cues travel in the fMP4 segments
+                 themselves as stpp.ttml.etd1, not as a sidecar file the client
+                 would fetch separately (4 = standalone) and not burnt into the
+                 picture (5 = open). -->
+            <tva:Carriage href="urn:tva:metadata:cs:SubtitleCarriageCS:2023:3"/>
+            <!-- 3.2.1 = EBU-TT-D 1.0, the format scripts/srt-to-ebu-tt-d.js
+                 writes. An EBU-TT-D document does not state its own revision, so
+                 this claims the lower of the two the CS offers: anything that
+                 reads 1.0.1 also reads 1.0, whereas claiming 1.0.1 would assert
+                 conformance to a revision nothing here has been checked against. -->
+            <tva:Coding href="urn:tva:metadata:cs:SubtitleCodingFormatCS:2023:3.2.1"/>
+            <!-- "sl" to match lang="sl" on the subtitle AdaptationSet in the MPD,
+                 which is what a client matches against when it picks a track. -->
+            <tva:SubtitleLanguage>sl</tva:SubtitleLanguage>
+            <!-- 2 = hard of hearing. Slovenian speech, Slovenian text: these are
+                 not a translation (1), they exist so a viewer who cannot hear the
+                 audio can follow the dialogue. -->
+            <tva:Purpose href="urn:tva:metadata:cs:SubtitlePurposeCS:2023:2"/>
+            <!-- False, and deliberately not optimistic. This flags a track
+                 authored to be read aloud as spoken subtitles; ours is a plain
+                 dialogue transcript with no speaker labels and no non-speech
+                 annotation, and nothing has been done to make it suitable. -->
+            <tva:SuitableForTTS>false</tva:SuitableForTTS>
+          </tva:SubtitleAttributes>
+        </AccessibilityAttributes>
+      </ContentAttributes>
+      <DASHDeliveryParameters>
+        <UriBasedLocation contentType="application/dash+xml">
+          <dvbi-types:URI>http://localhost:9080/stream/live/combined/stream.mpd</dvbi-types:URI>
+        </UriBasedLocation>
+      </DASHDeliveryParameters>
+    </ServiceInstance>
+    <ServiceName>Kanal v živo, brez tolmača</ServiceName>
+    <ProviderName>LMMFE</ProviderName>
+  </Service>
+
+  <!-- Channel 3: the accessibility channel this project is about. The signer is
+       a separate video track and an application draws it over the picture, so
+       the viewer can move it, resize it or switch it off. Channel 4 carries the
+       same programme with the signer burnt in, as the comparison. -->
+  <Service version="1">
+    <UniqueIdentifier>tag:lmmfe.org,2026:dostopnost2</UniqueIdentifier>
+
+    <ServiceInstance priority="1">
+      <DisplayName>Tolmač</DisplayName>
+      <!-- Linked app, HbbTV terminal path.
+           Type 1.1 "app with media in parallel": the terminal presents the main stream
+           from DASHDeliveryParameters below and starts this app alongside it, so the app
+           only draws the interpreter overlay. Per A177 table 7 a MediaUri declared as
+           application/vnd.dvb.ait+xml must resolve to an XML AIT, not to the app page.
+
+           AccessibilityAttributes here, inside RelatedMaterial (A177 clause 4.5.3 and
+           figure 2a), describes the access service that this linked application
+           provides — which is why AppInformation, meaningless for a media component,
+           belongs in this block and not in the one below.
+
+           It does not replace the ContentAttributes declaration that follows. That is
+           the one clients read when adapting service instance priorities to a viewer's
+           accessibility preferences (A185r1 clauses 5.1.1 and 5.2.1). With only this
+           block present, a client asked for in-vision signing finds signing declared on
+           channel 4 and none here, and ranks the burnt-in rendition — the one the viewer
+           cannot switch off — above this one. Closed=true because the viewer switches
+           the signer on and off through the app rather than it being burnt into the
+           video; A185r1 clause 5.1.3.4 provides for exactly that case, an application
+           delivering the feature and switching seamlessly between representations with
+           and without it. -->
+      <RelatedMaterial>
+        <tva:HowRelated href="urn:dvb:metadata:cs:LinkedApplicationCS:2019:1.1"/>
+        <tva:MediaLocator>
+          <!-- ?service= names which service this AIT is for; aitx.php reads that
+               service's own DASH URI back out of this file and hands it to the
+               application. One application, any number of signed channels, and
+               no second place where stream URLs have to be kept in step. -->
+          <tva:MediaUri contentType="application/vnd.dvb.ait+xml">http://localhost:9080/hbbtv-app/aitx.php?service=tag:lmmfe.org,2026:dostopnost2</tva:MediaUri>
+        </tva:MediaLocator>
+        <tva:AccessibilityAttributes>
+          <tva:SigningAttributes>
+            <tva:AppInformation>
+              <!-- HbbTV 2.0.4 = TS 102 796 v1.7.1; required for the Accessibility Framework
+                   (inVisionSigning user preference, TS 102 796 clause 15.3.9). -->
+              <tva:RequiredStandardVersion>urn:hbbtv:appinformation:standardversion:hbbtv:1.7.1</tva:RequiredStandardVersion>
+            </tva:AppInformation>
+            <!-- 1.1.10 = H.264-base-L3.1, which is how ffmpeg_stream_commands/combined
+                 encodes the signer track (-profile:v:1 baseline -level:v:1 3.1).
+                 Baseline is deliberate: Broadway.js, the software decoder used where
+                 WebCodecs is absent, decodes no other profile. -->
+            <tva:Coding href="urn:dvb:metadata:cs:VideoCodecCS:2022:1.1.10"/>
+            <!-- ISO 639-3 has no code of its own for Slovenian Sign Language: it is
+                 recorded as a dialect of Yugoslav Sign Language, ysl, which is also
+                 where Ethnologue indexes it. -->
+            <tva:SignLanguage>ysl</tva:SignLanguage>
+            <tva:Closed>true</tva:Closed>
+          </tva:SigningAttributes>
+        </tva:AccessibilityAttributes>
+      </RelatedMaterial>
+
+      <!-- What this service instance provides, as opposed to what the application above
+           is. A client matching a viewer's in-vision signing preference against service
+           instances reads this (A185r1 clauses 5.1.1 and 5.2.1); without it the signing
+           on this service is invisible to that matching, however completely the
+           RelatedMaterial block describes the application.
+
+           Unprefixed because inside ContentAttributes the element is declared by the
+           DVB-I schema, whereas inside RelatedMaterial the TVA schema declares it and it
+           takes the tva: prefix — the same split as on channel 4. -->
+      <ContentAttributes>
+        <AccessibilityAttributes>
+          <!-- Same subtitle track as channel 2 — the two share this MPD. Values
+               are explained on channel 2. First in the block because the schema
+               sequences SubtitleAttributes ahead of SigningAttributes. -->
+          <tva:SubtitleAttributes>
+            <tva:Carriage href="urn:tva:metadata:cs:SubtitleCarriageCS:2023:3"/>
+            <tva:Coding href="urn:tva:metadata:cs:SubtitleCodingFormatCS:2023:3.2.1"/>
+            <tva:SubtitleLanguage>sl</tva:SubtitleLanguage>
+            <tva:Purpose href="urn:tva:metadata:cs:SubtitlePurposeCS:2023:2"/>
+            <tva:SuitableForTTS>false</tva:SuitableForTTS>
+          </tva:SubtitleAttributes>
+          <tva:SigningAttributes>
+            <!-- 1.1.10 = H.264-base-L3.1: the codec of the signer track itself, the
+                 AdaptationSet carrying Role="sign" in the manifest below. Channel 4
+                 declares the codec of its main video instead, because there the signer
+                 is that video. -->
+            <tva:Coding href="urn:dvb:metadata:cs:VideoCodecCS:2022:1.1.10"/>
+            <tva:SignLanguage>ysl</tva:SignLanguage>
+            <!-- Switchable, so closed. See the RelatedMaterial comment above. -->
+            <tva:Closed>true</tva:Closed>
+          </tva:SigningAttributes>
+        </AccessibilityAttributes>
+      </ContentAttributes>
+
+      <!-- Main stream — played by the terminal on the type 1.1 path, and by a plain DVB-I
+           client with no linked application support. -->
+      <DASHDeliveryParameters>
+        <UriBasedLocation contentType="application/dash+xml">
+          <dvbi-types:URI>http://localhost:9080/stream/live/combined/stream.mpd</dvbi-types:URI>
+        </UriBasedLocation>
+      </DASHDeliveryParameters>
+    </ServiceInstance>
+
+    <ServiceName>Kanal s tolmačem</ServiceName>
+    <ProviderName>LMMFE</ProviderName>
+  </Service>
+
+  <!-- Channel 4: the conventional approach — signer composited into the picture
+       by the encoder. No application, no second decoder, nothing for the client
+       to support, and nothing the viewer can move, resize or switch off.
+
+       A separate Service rather than a second ServiceInstance of channel 3.
+       Modelling it as an instance is arguably the better fit for the standard —
+       one service, two renditions, the client picks — but no client here picks:
+       the reference client takes the lowest priority number among available
+       instances (channel-common.js getServiceInstance) and never consults
+       SigningAttributes, so the burnt-in rendition could not be reached at all.
+       As its own channel it is watchable, and flipping between 3 and 4 is the
+       comparison this project exists to make. It is also how signing actually
+       ships: every deployment surveyed in A185 annex A uses a separate channel.
+
+       Reconsider this if instance selection from a stored accessibility
+       preference is ever implemented — that is the case a second instance
+       would demonstrate, and this Service is what it would become. -->
+  <Service version="1">
+    <UniqueIdentifier>tag:lmmfe.org,2026:dostopnost3</UniqueIdentifier>
+    <ServiceInstance priority="1">
+      <ContentAttributes>
+        <!-- AccessibilityAttributes sits in ContentAttributes, not in
+             RelatedMaterial as on channel 3: here the signing is a property of
+             the media itself rather than of a linked application. Unprefixed
+             because inside ContentAttributes the element is declared by the
+             DVB-I schema; inside RelatedMaterial the TVA schema declares it and
+             it takes the tva: prefix. -->
+        <AccessibilityAttributes>
+          <!-- The burnt-in channel is cut from the same cues by package-loop, so
+               it carries the identical subtitle track. Values explained on
+               channel 2. Only the signer differs between 3 and 4; subtitles are
+               constant across all three, which is what makes them a fair
+               comparison. -->
+          <tva:SubtitleAttributes>
+            <tva:Carriage href="urn:tva:metadata:cs:SubtitleCarriageCS:2023:3"/>
+            <tva:Coding href="urn:tva:metadata:cs:SubtitleCodingFormatCS:2023:3.2.1"/>
+            <tva:SubtitleLanguage>sl</tva:SubtitleLanguage>
+            <tva:Purpose href="urn:tva:metadata:cs:SubtitlePurposeCS:2023:2"/>
+            <tva:SuitableForTTS>false</tva:SuitableForTTS>
+          </tva:SubtitleAttributes>
+          <tva:SigningAttributes>
+            <!-- 1.4.12 = H.264-high-L4, as encoded by ffmpeg_stream_commands/burned.
+                 The signer is part of this video, so the codec of the picture is
+                 the codec of the access service. -->
+            <tva:Coding href="urn:dvb:metadata:cs:VideoCodecCS:2022:1.4.12"/>
+            <tva:SignLanguage>ysl</tva:SignLanguage><!-- same code as channel 3 -->
+            <!-- Burnt in: the viewer cannot switch it off. -->
+            <tva:Closed>false</tva:Closed>
+          </tva:SigningAttributes>
+        </AccessibilityAttributes>
+      </ContentAttributes>
+      <DASHDeliveryParameters>
+        <UriBasedLocation contentType="application/dash+xml">
+          <dvbi-types:URI>http://localhost:9080/stream/live/burned/stream.mpd</dvbi-types:URI>
+        </UriBasedLocation>
+      </DASHDeliveryParameters>
+    </ServiceInstance>
+    <ServiceName>Kanal z zapečenim tolmačem</ServiceName>
+    <ProviderName>LMMFE</ProviderName>
+  </Service>
+
+</ServiceList>

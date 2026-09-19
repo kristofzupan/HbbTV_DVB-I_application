@@ -1,0 +1,5 @@
+{
+  "_COMMENT": "Please create matching appConfig.json file - this is only example",
+  "initialUrl": "file:///android_asset/frontend/android/player.html",
+  "client": "dvb"
+}

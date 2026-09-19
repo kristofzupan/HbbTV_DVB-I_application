@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DVB-I Accessibility MVP – Dual Video & Subtitles</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="header">
+    <h1>Accessibility demo: main content + interpreter</h1>
+    <p class="subtitle">MVP for HbbTV/DVB-I sign-language & subtitle flexibility</p>
+  </header>
+
+  <main class="player-container" id="playerContainer">
+    <!-- Main content video (full area). Hidden in interpreter-only mode (DVB-I: main is on TV). -->
+    <div class="video-wrapper main-video-wrapper" id="mainVideoWrapper">
+      <video id="mainVideo" class="video main-video" playsinline>
+        <source id="mainSource" src="" type="video/mp4">
+        <track id="subtitleTrack" kind="subtitles" src="subtitles/sample.vtt" srclang="en" label="English" default>
+        Your browser does not support the video tag.
+      </video>
+    </div>
+    <p class="interpreter-only-message" id="interpreterOnlyMessage" aria-live="polite">Main content is on the TV. Use the overlay and controls below.</p>
+
+    <!-- Interpreter overlay (positioned on top) -->
+    <div id="interpreterOverlay" class="interpreter-overlay interpreter-position-br interpreter-size-medium">
+      <video id="interpreterVideo" class="video interpreter-video" playsinline muted>
+        <source id="interpreterSource" src="" type="video/mp4">
+        Your browser does not support the video tag.
+      </video>
+    </div>
+  </main>
+
+  <section class="controls">
+    <div class="control-group">
+      <h2>Playback</h2>
+      <div class="button-row">
+        <button id="btnPlay" type="button">Play</button>
+        <button id="btnPause" type="button">Pause</button>
+        <button id="btnRestart" type="button">Restart</button>
+        <button id="btnFullscreen" type="button">Fullscreen</button>
+      </div>
+      <label class="checkbox-label">
+        <input type="checkbox" id="subtitleToggle" checked>
+        Show subtitles
+      </label>
+      <p class="key-hint">Keyboard: Enter/Space = Play, P = Pause, R = Restart, 1–6 = position, S/M/L = size, C = subtitles</p>
+    </div>
+
+    <div class="control-group">
+      <h2>Interpreter position</h2>
+      <div class="button-row" id="positionButtons" role="group" aria-label="Interpreter position">
+        <button type="button" data-position="tl">Top left</button>
+        <button type="button" data-position="tc">Top centre</button>
+        <button type="button" data-position="tr">Top right</button>
+        <button type="button" data-position="bl">Bottom left</button>
+        <button type="button" data-position="bc">Bottom centre</button>
+        <button type="button" data-position="br">Bottom right</button>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <h2>Interpreter size</h2>
+      <div class="button-row" id="sizeButtons" role="group" aria-label="Interpreter size">
+        <button type="button" data-size="small">Small</button>
+        <button type="button" data-size="medium">Medium</button>
+        <button type="button" data-size="large">Large</button>
+      </div>
+    </div>
+
+    <div class="control-group sources">
+      <h2>Video sources</h2>
+      <p>When launched from DVB-I with <code>?interpreter=...</code> (or <code>?main=...</code>), the app uses those URLs — <strong>streams come from DVB-I</strong>, no local files needed. When opened standalone, it falls back to <code>videos/main.mp4</code> and <code>videos/interpreter.mp4</code> (put files in <code>videos/</code>, run from a local server). Override via the fields below or URL params. See <a href="docs/STREAMS_FROM_DVBI.md">docs/STREAMS_FROM_DVBI.md</a> and README.</p>
+      <label>Main video URL: <input type="text" id="mainVideoUrl" placeholder="videos/main.mp4"></label>
+      <label>Interpreter video URL: <input type="text" id="interpreterVideoUrl" placeholder="videos/interpreter.mp4"></label>
+      <button id="btnApplySources" type="button">Apply URLs</button>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <p>MVP for master’s thesis: flexible interpreter and subtitle display on DVB-I/HbbTV.</p>
+  </footer>
+
+  <script src="js/hbbtv-bridge.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

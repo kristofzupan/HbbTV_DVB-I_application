@@ -1,0 +1,20 @@
+{
+  "name": "Accessibility Interpreter & Subtitles",
+  "description": "DVB-I/HbbTV prototype: flexible sign-language interpreter overlay and subtitles for deaf and hard-of-hearing viewers.",
+  "url": "./index.html",
+  "type": "1.1",
+  "typeDescription": "Linked application with media in parallel (red-button style); launches when service is selected.",
+  "version": "1.0.0",
+  "author": "Master's thesis prototype",
+  "features": [
+    "Dual video: main content + interpreter overlay",
+    "Configurable interpreter position and size",
+    "WebVTT subtitles with toggle",
+    "Remote control / keyboard support"
+  ],
+  "dvb-i": {
+    "linkedApplicationTypes": ["1.1", "1.2"],
+    "notes": "Type 1.1 = app with media in parallel. Type 1.2 = app controlling media. Serve this app at the base URL; DVB-I service list references the base URL or this manifest URL.",
+    "testing": "Linked from DVB-I Reference Client as Thesis accessibility list (thesis.xml). Channel 1 = Accessibility demo channel; main stream in DVB-I client, this app = interpreter overlay. Run backend: node scripts/start-dvbi-reference-client.js; run app: python3 -m http.server 8080 from HbbTV. See docs/WHAT_NOW_DVBI_BACKEND.md and docs/BACKEND_SETUP.md."
+  }
+}

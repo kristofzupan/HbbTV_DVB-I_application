@@ -1,0 +1,42 @@
+# Publishes the pre-packaged loop as a live DASH stream.
+#
+# This replaces dvbi-encoder.service, which ran ffmpeg continuously. Nothing is
+# encoded or packaged at serving time any more: ffmpeg_stream_commands/prerender
+# and ffmpeg_stream_commands/package-loop produce every segment in advance, and
+# this process only decides which of them is current.
+#
+# To retire the encoder on a host where it is still installed:
+#   sudo systemctl disable --now dvbi-encoder
+#   sudo rm /etc/systemd/system/dvbi-encoder.service
+#   sudo systemctl daemon-reload
+#
+# Install:
+#   sudo cp deploy/dvbi-publisher.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now dvbi-publisher
+#   systemctl status dvbi-publisher
+#
+# Before it will start, the loop has to exist:
+#   sh ffmpeg_stream_commands/prerender      # minutes, re-encodes the source
+#   sh ffmpeg_stream_commands/package-loop   # seconds
+#
+# Restart=always is kept, but it no longer covers the same failure. The encoder
+# ran with -remove_at_exit, so stopping it deleted every segment and the
+# channels went black until it came back. This holds no state: it publishes from
+# a fixed constant, so a restart puts the stream back exactly where it would
+# have been and clients do not notice.
+
+[Unit]
+Description=DVB-I loop publisher (all channels)
+After=network.target
+
+[Service]
+Type=simple
+User=administrator
+WorkingDirectory=/srv/dvbi/HbbTV_DVB-I_application
+ExecStart=/usr/bin/node scripts/publish-loop.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

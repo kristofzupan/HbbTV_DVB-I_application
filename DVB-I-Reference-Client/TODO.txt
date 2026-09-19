@@ -1,0 +1,5 @@
+
+Backend
+ - include the following in the service list editor
+    ~ <ServiceProminence>
+	~ <AccessibilityAttributes>

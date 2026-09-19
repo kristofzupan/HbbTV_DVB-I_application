@@ -1,0 +1,127 @@
+apply plugin: 'com.android.application'
+apply from: '../constants.gradle'
+
+tasks.register('copyFiles', Copy) {
+    from new File("$projectDir/../../../")
+    into "${layout.projectDirectory}/src/main/assets/"
+    include 'identifiers.js'
+    include 'jquery-3.7.1.min.js'
+    include 'namespaces.js'
+    include 'frontend/i18n/**'
+    include 'frontend/*.js'
+    include 'frontend/android/**'
+}
+
+// The overlay flavour's start URL is derived from the same BASE_URL the server
+// reads, not written down a second time, so the APK cannot come to disagree
+// with the service list about where the deployment lives.
+def installLocation = {
+    def fromEnv = System.getenv('BASE_URL')
+    if (fromEnv) return fromEnv
+    def dotenv = new File("$projectDir/../../../../.env")
+    if (dotenv.exists()) {
+        def line = dotenv.readLines().find { it.trim().startsWith('BASE_URL=') }
+        if (line) return line.trim().substring('BASE_URL='.length()).replaceAll('^["\']|["\']$', '')
+    }
+    return 'http://localhost:9080'
+}().replaceAll('/$', '')
+
+// Identical to the applicationLocation the XML AIT advertises (hbbtv-app/aitx.php):
+// interpreter-only, because on a terminal the main picture is the terminal's to
+// present. In this WebView there is no terminal, so the application falls back to
+// playing the interpreter stream itself — which is the point of this build.
+def overlayInitialUrl = "$installLocation/hbbtv-app/index.html?interpreter=$installLocation/stream/live/combined/stream.mpd"
+
+def overlayAssetsDir = layout.buildDirectory.dir('generated/overlayAssets').get().asFile
+tasks.register('overlayAppConfig') {
+    inputs.property('initialUrl', overlayInitialUrl)
+    outputs.dir(overlayAssetsDir)
+    doLast {
+        def out = new File(overlayAssetsDir, 'appConfig.json')
+        out.parentFile.mkdirs()
+        out.text = "{\n  \"initialUrl\": \"$overlayInitialUrl\",\n  \"client\": \"dvb\"\n}\n"
+    }
+}
+android {
+    compileSdkVersion 33
+
+    defaultConfig {
+        minSdkVersion 24
+        targetSdkVersion 33
+        applicationId "com.dvb.dvb_i.DvbiReferenceApplication"
+        versionCode 38
+        versionName "38"
+
+        manifestPlaceholders = [manifestApplicationId: "${applicationId}", appLabel: "DVB-I Reference client"]
+        setProperty("archivesBaseName", applicationId + "-v" + versionCode)
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    buildTypes {
+        debug {
+	        applicationIdSuffix ".debug"
+        }
+        release {
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-project.txt'
+            zipAlignEnabled true
+        }
+    }
+
+    flavorDimensions "webview"
+
+    productFlavors {
+        normal {
+            dimension "webview"
+        }
+        // Same WebView shell, started on the HbbTV interpreter application
+        // instead of the DVB-I client. Installs alongside the reference client
+        // rather than replacing it, so the AIT launch path and the standalone
+        // overlay can be compared on one television.
+        overlay {
+            dimension "webview"
+            applicationIdSuffix ".overlay"
+            manifestPlaceholders.appLabel = "Sign language interpreter"
+        }
+    }
+
+    sourceSets {
+        // The webview implementation lives in the normal flavour; the overlay
+        // build differs only in which URL it opens.
+        overlay {
+            java.srcDirs += 'src/normal/java'
+            assets.srcDirs += overlayAssetsDir
+        }
+    }
+    lint {
+        abortOnError true
+        checkReleaseBuilds true
+    }
+
+    namespace 'com.dvb.dvb_i'
+}
+
+preBuild.dependsOn(copyFiles)
+preBuild.dependsOn(overlayAppConfig)
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.3.1'
+    implementation 'com.google.android.gms:play-services-gcm:17.0.0'
+    implementation 'com.google.code.gson:gson:2.8.7'
+
+    implementation 'androidx.tvprovider:tvprovider:1.1.0-alpha01'
+    
+    implementation("com.squareup.okhttp3:okhttp:4.9.0")
+    implementation("androidx.security:security-crypto:1.1.0-alpha03")
+    implementation 'androidx.recyclerview:recyclerview:'                     + project.ext.jetpackVersion            // (344 KB) https://mvnrepository.com/artifact/androidx.recyclerview/recyclerview?repo=google
+
+    implementation "androidx.constraintlayout:constraintlayout:2.1.0"
+    implementation "androidx.tvprovider:tvprovider:"
+    implementation 'pub.devrel:easypermissions:3.0.0'
+    
+    // Minimal version for suitest is 25.2.0, you can use any higher.
+    debugImplementation 'org.java-websocket:Java-WebSocket:1.5.1'
+}

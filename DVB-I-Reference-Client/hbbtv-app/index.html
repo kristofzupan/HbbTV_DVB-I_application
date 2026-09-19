@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<title>DVB-I Accessibility</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script>
+    window.onerror = function (msg, src, line) {
+      var el = document.getElementById('dvbi-boot-status');
+      if (el) {
+        el.style.background = '#8b0000';
+        el.style.display = 'block';
+        el.innerHTML = '<b>Error:</b> ' + msg + ' (' + (src || '?').replace(/.*\//, '') + ':' + line + ')';
+      }
+      return false;
+    };
+  </script>
+</head>
+<body>
+  <div id="dvbi-boot-status">Nalaganje aplikacije za dostopnost DVB-I ...</div>
+
+  <!-- HbbTV terminal objects. Instantiated by the terminal only; inert in a
+       browser, where they behave as empty elements.
+
+       As a linked application of type 1.1 the terminal, not this application,
+       presents the main picture. Holding a video/broadcast object bound to the
+       current channel is what keeps that presentation alive: an application that
+       starts its own broadband video without one causes the terminal to suspend
+       the channel (ETSI TS 102 796 clause A.2.1) — blacking out the programme
+       this overlay exists to accompany.
+       
+       Both start with no area and hidden: a browser has no handler for these
+       types and would otherwise draw a "plugin not supported" box over the
+       page. hbbtv-bridge gives the broadcast object the full screen only once a
+       terminal has accepted bindToCurrentChannel. -->
+  <object id="appManager" type="application/oipfApplicationManager"
+          style="position:absolute;left:0;top:0;width:0;height:0;visibility:hidden"></object>
+  <object id="broadcastVideo" type="video/broadcast"
+          style="position:absolute;left:0;top:0;width:0;height:0;visibility:hidden"></object>
+
+  <!-- Main video: fullscreen background. Used when the app is responsible for
+       playback (browser, or launched with ?main=); unused once bound to a
+       terminal's own presentation. -->
+  <video id="mainVideo" playsinline muted></video>
+
+  <!-- Interpreter overlay: visible by default, top-right — the bottom of the
+       screen is where subtitles are rendered. Must match posRow/posCol in
+       app.js, which is what every later repositioning is applied from. -->
+  <div id="interpreterOverlay" class="interpreter-overlay interpreter-position-tr">
+    <video id="interpreterVideo" playsinline muted></video>
+    <canvas id="interpreterCanvas" width="960" height="720"></canvas>
+  </div>
+
+  <!-- Subtitles, drawn by this application. Positioned to match the region the
+       EBU-TT-D document declares (subtitles/main_slv.xml): the title-safe area,
+       text pinned to its bottom edge. Kept in the conventional place — it is
+       the interpreter overlay that moved to the top right to make room. -->
+  <div id="subtitles"></div>
+
+  <div id="toast"></div>
+
+  <!-- Persistent hint bar -->
+  <div id="hintBar">RDEČ GUMB=vklop/izklop &nbsp;|&nbsp; &#9664;&#9654;&#9650;&#9660;=premik &nbsp;|&nbsp; ZELEN GUMB=povečaj &nbsp;|&nbsp; RUMEN GUMB=pomanjšaj &nbsp;|&nbsp; SUBTITLE=podnapisi</div>
+
+  <!-- Error display -->
+  <div id="errorOverlay"></div>
+
+  <script src="js/hbbtv-bridge.js"></script>
+  <script src="js/dash.all.min.js"></script>
+  <script src="js/broadway-decoder.js"></script>
+  <script src="js/broadway-yuvcanvas.js"></script>
+  <script src="js/broadway-player-lib.js"></script>
+  <script src="js/wasm-decoder.js"></script>
+  <script src="js/webcodecs-decoder.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
