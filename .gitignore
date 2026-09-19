@@ -7,3 +7,4 @@ DVB-I-Reference-Client/stream/
 # Source media (large binaries)
 video_content/
 *.mp4
+latex_mag

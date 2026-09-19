@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ServiceList xmlns="urn:dvb:metadata:servicediscovery:2024" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:tva="urn:tva:metadata:2024" xmlns:dvbi-types="urn:dvb:metadata:servicediscovery-types:2023" xsi:schemaLocation="urn:dvb:metadata:servicediscovery:2024 schemas/dvbi_v6.0.xsd" xml:lang="en" id="tag:lmmfe.org,2026:thesis-accessibility" version="6">
-  <Name>Thesis accessibility list</Name>
-  <ProviderName>Thesis</ProviderName>
+  <Name>Magisterij seznam storitev</Name>
+  <ProviderName>LMMFE</ProviderName>
   <LCNTableList>
     <LCNTable>
-      <LCN channelNumber="2" serviceRef="tag:lmmfe.org,2026:accessibility2"/>
-      <LCN channelNumber="3" serviceRef="tag:lmmfe.org,2026:accessibility3"/>
+      <LCN channelNumber="1" serviceRef="tag:lmmfe.org,2026:dostopnost1"/>
+      <LCN channelNumber="2" serviceRef="tag:lmmfe.org,2026:dostopnost2"/>
       <!-- Without an LCN entry a Service is invisible: the client is configured
            with INCLUDE_NON_LCN_CHANNELS = false, and the schema cannot catch it. -->
-      <LCN channelNumber="4" serviceRef="tag:lmmfe.org,2026:accessibility4"/>
+      <LCN channelNumber="3" serviceRef="tag:lmmfe.org,2026:dostopnost3"/>
     </LCNTable>
   </LCNTableList>
 
@@ -21,7 +21,7 @@
 
   <!-- Channel 2: Live only (no interpreter) -->
   <Service version="1">
-    <UniqueIdentifier>tag:lmmfe.org,2026:accessibility2</UniqueIdentifier>
+    <UniqueIdentifier>tag:lmmfe.org,2026:dostopnost1</UniqueIdentifier>
     <ServiceInstance priority="1">
       <!-- The stream has carried EBU-TT-D since the loop was packaged, but until
            this block existed nothing in the service list said so. A DVB-I client
@@ -72,8 +72,8 @@
         </UriBasedLocation>
       </DASHDeliveryParameters>
     </ServiceInstance>
-    <ServiceName>Live Channel</ServiceName>
-    <ProviderName>Thesis</ProviderName>
+    <ServiceName>Kanal v živo, brez tolmača</ServiceName>
+    <ProviderName>LMMFE</ProviderName>
   </Service>
 
   <!-- Channel 3: the accessibility channel this project is about. The signer is
@@ -81,10 +81,10 @@
        the viewer can move it, resize it or switch it off. Channel 4 carries the
        same programme with the signer burnt in, as the comparison. -->
   <Service version="1">
-    <UniqueIdentifier>tag:lmmfe.org,2026:accessibility3</UniqueIdentifier>
+    <UniqueIdentifier>tag:lmmfe.org,2026:dostopnost2</UniqueIdentifier>
 
     <ServiceInstance priority="1">
-      <DisplayName>Accessibility Channel (app overlay)</DisplayName>
+      <DisplayName>Tolmač</DisplayName>
       <!-- Linked app, HbbTV terminal path.
            Type 1.1 "app with media in parallel": the terminal presents the main stream
            from DASHDeliveryParameters below and starts this app alongside it, so the app
@@ -113,7 +113,7 @@
                service's own DASH URI back out of this file and hands it to the
                application. One application, any number of signed channels, and
                no second place where stream URLs have to be kept in step. -->
-          <tva:MediaUri contentType="application/vnd.dvb.ait+xml">http://localhost:9080/hbbtv-app/aitx.php?service=tag:lmmfe.org,2026:accessibility3</tva:MediaUri>
+          <tva:MediaUri contentType="application/vnd.dvb.ait+xml">http://localhost:9080/hbbtv-app/aitx.php?service=tag:lmmfe.org,2026:dostopnost2</tva:MediaUri>
         </tva:MediaLocator>
         <tva:AccessibilityAttributes>
           <tva:SigningAttributes>
@@ -179,8 +179,8 @@
       </DASHDeliveryParameters>
     </ServiceInstance>
 
-    <ServiceName>Accessibility Channel</ServiceName>
-    <ProviderName>Thesis</ProviderName>
+    <ServiceName>Kanal s tolmačem</ServiceName>
+    <ProviderName>LMMFE</ProviderName>
   </Service>
 
   <!-- Channel 4: the conventional approach — signer composited into the picture
@@ -201,7 +201,7 @@
        preference is ever implemented — that is the case a second instance
        would demonstrate, and this Service is what it would become. -->
   <Service version="1">
-    <UniqueIdentifier>tag:lmmfe.org,2026:accessibility4</UniqueIdentifier>
+    <UniqueIdentifier>tag:lmmfe.org,2026:dostopnost3</UniqueIdentifier>
     <ServiceInstance priority="1">
       <ContentAttributes>
         <!-- AccessibilityAttributes sits in ContentAttributes, not in
@@ -240,8 +240,8 @@
         </UriBasedLocation>
       </DASHDeliveryParameters>
     </ServiceInstance>
-    <ServiceName>Accessibility Channel (burnt-in signer)</ServiceName>
-    <ProviderName>Thesis</ProviderName>
+    <ServiceName>Kanal z zapečenim tomačem</ServiceName>
+    <ProviderName>LMMFE</ProviderName>
   </Service>
 
 </ServiceList>
