@@ -191,12 +191,12 @@ function toggleSubtitleTrack() {
     return; // no source attached yet
   }
   if (!tracks.length) {
-    notify("No subtitles on this service");
+    notify(i18n.getString("subtitles_unavailable"));
     return;
   }
   var on = player.isTextEnabled();
   player.setTextTrack(on ? -1 : 0);
-  notify(on ? "Subtitles off" : "Subtitles on: " + (tracks[0].lang || "unknown"));
+  notify(on ? i18n.getString("subtitles_off") : i18n.getString("subtitles_on_prefix") + i18n.getLanguageName(tracks[0].lang || "unknown"));
 }
 
 // The client already has somewhere to say things; the alternative is a viewer

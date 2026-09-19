@@ -57,9 +57,9 @@
     ['bl', 'bc', 'br']
   ];
   var POS_LABELS = {
-    tl: 'Top left',    tc: 'Top centre',    tr: 'Top right',
-    ml: 'Middle left', mc: 'Middle centre', mr: 'Middle right',
-    bl: 'Bottom left', bc: 'Bottom centre', br: 'Bottom right'
+    tl: 'Zgoraj levo',  tc: 'Zgoraj sredina',  tr: 'Zgoraj desno',
+    ml: 'Sredina levo', mc: 'Sredina',         mr: 'Sredina desno',
+    bl: 'Spodaj levo',  bc: 'Spodaj sredina',  br: 'Spodaj desno'
   };
   // Top right by default. The bottom of the screen belongs to subtitles: they
   // are authored in the conventional bottom region, a terminal renders them
@@ -444,7 +444,7 @@
     var w = SIZE_WIDTHS[sizeIdx];
     overlay.style.width  = w + 'vw';
     overlay.style.height = (w * videoRatio).toFixed(3) + 'vw';
-    showToast('Size ' + (sizeIdx + 1) + ' / ' + SIZE_WIDTHS.length);
+    showToast('Velikost ' + (sizeIdx + 1) + ' / ' + SIZE_WIDTHS.length);
   }
 
   // Called when actual video dimensions are known (first frame or loadedmetadata)
@@ -507,11 +507,11 @@
     if (interpreterVisible) {
       overlay.classList.remove('hidden');
       startInterpreterDecoder();
-      showToast('Interpreter ON');
+      showToast('Tolmač VKLOPLJEN');
     } else {
       overlay.classList.add('hidden');
       stopInterpreterDecoder();
-      showToast('Interpreter OFF');
+      showToast('Tolmač IZKLOPLJEN');
     }
   }
 
@@ -662,14 +662,14 @@
       case VK_GREEN:
       case VK_GREEN2:
         if (sizeIdx < SIZE_WIDTHS.length - 1) { sizeIdx++; applySize(); }
-        else { showToast('Maximum size'); }
+        else { showToast('Največja velikost'); }
         e.preventDefault();
         break;
 
       case VK_YELLOW:
       case VK_YELLOW2:
         if (sizeIdx > 0) { sizeIdx--; applySize(); }
-        else { showToast('Minimum size'); }
+        else { showToast('Najmanjša velikost'); }
         e.preventDefault();
         break;
 
@@ -677,31 +677,31 @@
       case VK_BLUE2:
         posRow = 0; posCol = 2; applyPosition();   // top right, as at startup
         sizeIdx = DEFAULT_SIZE_IDX; applySize();
-        showToast('Reset');
+        showToast('Ponastavitev');
         e.preventDefault();
         break;
 
       case VK_UP:
         if (posRow > 0) { posRow--; applyPosition(); }
-        else { showToast('Top row'); }
+        else { showToast('Zgornja vrsta'); }
         e.preventDefault();
         break;
 
       case VK_DOWN:
         if (posRow < POS_GRID.length - 1) { posRow++; applyPosition(); }
-        else { showToast('Bottom row'); }
+        else { showToast('Spodnja vrsta'); }
         e.preventDefault();
         break;
 
       case VK_LEFT:
         if (posCol > 0) { posCol--; applyPosition(); }
-        else { showToast('Leftmost'); }
+        else { showToast('Skrajno levo'); }
         e.preventDefault();
         break;
 
       case VK_RIGHT:
         if (posCol < POS_GRID[0].length - 1) { posCol++; applyPosition(); }
-        else { showToast('Rightmost'); }
+        else { showToast('Skrajno desno'); }
         e.preventDefault();
         break;
     }
@@ -903,7 +903,7 @@
     // them. Claiming the key here would leave the viewer pressing it and seeing
     // nothing happen, which is worse than the key doing nothing at all.
     if (!APP_RENDERED_SUBTITLES) {
-      showToast('Subtitles are provided by the television');
+      showToast('Podnapisi so zagotovljeni s strani televizorja');
       return;
     }
     subtitlesOn = !subtitlesOn;

@@ -98,6 +98,12 @@
   "lang_zhn": "Chinese",
   "lang_swe": "Swedish",
   "lang_nld": "Dutch",
+  "lang_sl": "Slovenščina",
+  "lang_ysl": "Slovenski znakovni jezik",
+
+  "subtitles_unavailable": "Podnapisi za to storitev niso na voljo",
+  "subtitles_off": "Podnapisi izklopljeni",
+  "subtitles_on_prefix": "Podnapisi vklopljeni: ",
 
   "textMagnification": "Text Magnification",
   "magnifierGlass": "Magnifier Glass",
