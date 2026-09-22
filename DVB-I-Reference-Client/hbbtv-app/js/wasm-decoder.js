@@ -293,6 +293,8 @@
     // reachable console.
     this._framesDecoded = 0;
     this._framesDrawn   = 0;
+    this._framesDropped = 0;
+    this._lastSyncMs    = null;
     this._lastFailure   = null;
     this._forceNoWebGL  = false;
     this._mpdUrl      = null;
@@ -410,7 +412,7 @@
         }
         // Too far behind the picture to be useful — drop it and let the next
         // manifest refresh reposition us.
-        if (delay < -LATE_FRAME_TOLERANCE_MS) { return; }
+        if (delay < -LATE_FRAME_TOLERANCE_MS) { self._framesDropped++; return; }
         if (delay < 0) { delay = 0; }
       } else {
         var targetMs = self._playbackStart + fi * FRAME_DUR_MS;
@@ -465,6 +467,10 @@
             self._yuvRenderer.drawNextOutputPicture({ yData: yData, uData: uData, vData: vData });
             drawContain(self._ctx, self._yuvCanvas, w, h, self._canvas.width, self._canvas.height);
             self._framesDrawn++;
+            if (ptsSec !== null) {
+              var m = self._masterTime();
+              if (m !== null) { self._lastSyncMs = (m - ptsSec) * 1000; }
+            }
           } catch (e) {
             self._lastFailure = 'WebGL render: ' + (e && e.message ? e.message : e);
             console.warn('[WasmDecoder] WebGL render error', e);
@@ -492,6 +498,10 @@
               drawContain(self._ctx, self._offscreen, w, h, self._canvas.width, self._canvas.height);
             }
             self._framesDrawn++;
+            if (ptsSec !== null) {
+              var m = self._masterTime();
+              if (m !== null) { self._lastSyncMs = (m - ptsSec) * 1000; }
+            }
           } catch (e) {
             self._lastFailure = 'RGBA render: ' + (e && e.message ? e.message : e);
             console.warn('[WasmDecoder] render error', e);
@@ -505,9 +515,11 @@
   // visible in a console, which a television does not offer.
   WasmDecoder.prototype.getStats = function () {
     return {
-      decoded:   this._framesDecoded,
-      drawn:     this._framesDrawn,
-      mpdFails:  this._mpdFails,
+      decoded:    this._framesDecoded,
+      drawn:      this._framesDrawn,
+      dropped:    this._framesDropped,
+      syncMs:     this._lastSyncMs,
+      mpdFails:   this._mpdFails,
       renderPath: this._useWebGL ? 'webgl' : 'rgba',
       lastFailure: this._lastFailure
     };

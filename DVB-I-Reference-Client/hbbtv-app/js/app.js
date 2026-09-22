@@ -538,6 +538,55 @@
   var diagEl = null;
   var diagForced = false;
 
+  var fpsPrev = { t: 0, decoded: null, drawn: null, main: null };
+  var fpsLine = 'fps  main=-  interp=-';
+
+  function videoFrameTotal(el) {
+    if (!el) { return null; }
+    try {
+      if (typeof el.getVideoPlaybackQuality === 'function') {
+        var q = el.getVideoPlaybackQuality();
+        if (q && typeof q.totalVideoFrames === 'number') { return q.totalVideoFrames; }
+      }
+      if (typeof el.webkitDecodedFrameCount === 'number') {
+        return el.webkitDecodedFrameCount;
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function fpsRate(curr, prev, dt) {
+    if (curr == null || prev == null || dt <= 0) { return '-'; }
+    var n = (curr - prev) / dt;
+    return isFinite(n) ? n.toFixed(1) : '-';
+  }
+
+  function sampleFps(stats) {
+    var now = Date.now();
+    var dt  = fpsPrev.t ? (now - fpsPrev.t) / 1000 : 0;
+    if (!appPresentsMain && !terminalPresentsMain) { hostVideoTime(); }
+    var mainEl = appPresentsMain ? mainVideo : hostVideo;
+    var mainN  = videoFrameTotal(mainEl);
+    var decodedN = (stats && typeof stats.decoded === 'number') ? stats.decoded : null;
+    var drawnN   = (stats && typeof stats.drawn   === 'number') ? stats.drawn   : null;
+    if (drawnN == null) { drawnN = videoFrameTotal(interpreterVideo); }
+    if (decodedN == null) { decodedN = drawnN; }
+
+    if (dt >= 0.4) {
+      var mainStr = (terminalPresentsMain && mainN == null)
+        ? 'n/a'
+        : fpsRate(mainN, fpsPrev.main, dt);
+      fpsLine = 'fps  main=' + mainStr +
+                '  interp=' + fpsRate(drawnN, fpsPrev.drawn, dt) +
+                ' (decode=' + fpsRate(decodedN, fpsPrev.decoded, dt) + ')';
+    }
+
+    fpsPrev.t       = now;
+    fpsPrev.decoded = decodedN;
+    fpsPrev.drawn   = drawnN;
+    fpsPrev.main    = mainN;
+  }
+
   function capabilities() {
     var webgl = false;
     try {
@@ -560,6 +609,7 @@
   function renderDiag() {
     var stats = (wasmDecoder && typeof wasmDecoder.getStats === 'function')
       ? wasmDecoder.getStats() : null;
+    sampleFps(stats);
 
     // Hidden unless the viewer asks for it with 0.
     //
@@ -612,9 +662,16 @@
       'terminal=' + yn(terminalPresentsMain) + ' interpOnly=' + yn(interpreterOnlyMode) +
       ' clock=' + clock + '\n' +
       'url=' + currentInterpreterUrl + '\n' +
+      fpsLine + '\n' +
       (stats
         ? 'mpdFails=' + stats.mpdFails + '  decoded=' + stats.decoded +
           '  drawn=' + stats.drawn +
+          (typeof stats.dropped === 'number' ? '  dropped=' + stats.dropped : '') +
+          '  queued=' + (stats.decoded - stats.drawn) + '\n' +
+          'sync=' + (stats.syncMs == null || !isFinite(stats.syncMs)
+            ? 'n/a'
+            : (stats.syncMs >= 0 ? '+' : '') + Math.round(stats.syncMs) + 'ms' +
+              (stats.syncMs > 40 ? ' late' : stats.syncMs < -40 ? ' early' : '')) +
           (stats.lastFailure ? '\nlast: ' + stats.lastFailure : '')
         : 'decoder not started');
   }

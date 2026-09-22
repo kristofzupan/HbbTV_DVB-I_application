@@ -286,6 +286,11 @@
     this._rafId         = null;
     this._loggedOffset  = false;
     this._firstFrameReported = false;
+    this._framesDecoded = 0;
+    this._framesDrawn   = 0;
+    this._framesDropped = 0;
+    this._lastSyncMs    = null;
+    this._lastFailure   = null;
   }
 
   // A master clock is only usable if it lands inside the manifest's segment
@@ -320,7 +325,10 @@
       if (now !== null) {
         var due = null;
         while (self._queue.length && self._queue[0].ptsSec <= now) {
-          if (due) due.frame.close();          // superseded, release GPU memory
+          if (due) {
+            due.frame.close();          // superseded, release GPU memory
+            self._framesDropped++;
+          }
           due = self._queue.shift();
         }
         if (due) {
@@ -332,7 +340,11 @@
           }
           try {
             self._ctx.drawImage(due.frame, 0, 0, self._canvas.width, self._canvas.height);
-          } catch (e) {}
+            self._framesDrawn++;
+            self._lastSyncMs = (now - due.ptsSec) * 1000;
+          } catch (e) {
+            self._lastFailure = 'draw: ' + (e && e.message ? e.message : e);
+          }
           due.frame.close();
         }
         // Queue is entirely in the past or entirely far ahead: we are looking at
@@ -370,6 +382,7 @@
     self._decoder = new VideoDecoder({
       output: function (frame) {
         if (self._stopped || self._decoderGen !== myGen) { frame.close(); return; }
+        self._framesDecoded++;
 
         // The overlay is sized from the signer's own aspect ratio, which is only
         // known once a frame exists. Reported before any queueing or dropping, so
@@ -413,12 +426,16 @@
             try {
               self._ctx.drawImage(frame, 0, 0,
                 self._canvas.width, self._canvas.height);
-            } catch (e) {}
+              self._framesDrawn++;
+            } catch (e) {
+              self._lastFailure = 'draw: ' + (e && e.message ? e.message : e);
+            }
           }
           frame.close(); // always release GPU memory
         }, delay);
       },
       error: function (err) {
+        self._lastFailure = 'decode: ' + (err && err.message ? err.message : err);
         console.error('[WebCodecsDecoder] decode error:', err);
       }
     });
@@ -434,6 +451,18 @@
     } catch (e) {
       console.error('[WebCodecsDecoder] configure failed:', e);
     }
+  };
+
+  WebCodecsDecoder.prototype.getStats = function () {
+    return {
+      decoded:     this._framesDecoded,
+      drawn:       this._framesDrawn,
+      dropped:     this._framesDropped,
+      syncMs:      this._lastSyncMs,
+      mpdFails:    0,
+      renderPath:  'webcodecs',
+      lastFailure: this._lastFailure
+    };
   };
 
   WebCodecsDecoder.prototype.start = function (mpdUrl) {
