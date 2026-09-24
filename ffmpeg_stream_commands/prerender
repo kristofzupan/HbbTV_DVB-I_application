@@ -70,10 +70,32 @@ done
 GOP="-g 100 -keyint_min 100 -sc_threshold 0"
 PRESET=${PRESET:-"-preset slow"}
 
-echo "== Building $OUT_COMBINED (main + signer as separate tracks)"
+# The studio green behind the signer is replaced with one flat colour, so the
+# application can key it out on the television and show the signer without a
+# box. SIGNER_BG=studio keeps the original background, for comparison. The studio green is pale and unevenly lit (#88c083 at
+# the top, #6ca468 at the bottom corners), and the black jacket sits close to
+# it in chroma: a key loose enough to take the whole background on the
+# television also takes the jacket. Keying here, once, with a tight threshold
+# and despill, leaves the television a single known colour to remove.
+#
+# 0x00b140 is the colour the application's shader keys on. It encodes as
+# Y 129, U 96, V 55 (limited-range BT.709, which the source is tagged with);
+# the shader holds those U/V values. Change both together or not at all.
+#
+# Only the combined source is affected: the burnt-in channel keeps its boxed
+# signer until the keyed one has been tested on a television.
+SIGN_FILTER="crop=1080:1080:420:0,scale=480:480,fps=25"
+SIGNER_BG=${SIGNER_BG:-flat}
+if [ "$SIGNER_BG" = "flat" ]; then
+  SIGN_CHAIN="[1:v]$SIGN_FILTER,format=yuva420p,chromakey=0x7cb679:0.05:0.03,despill=type=green[key];color=c=0x00b140:s=480x480:r=25[bg];[bg][key]overlay=shortest=1,format=yuv420p[sign]"
+else
+  SIGN_CHAIN="[1:v]$SIGN_FILTER[sign]"
+fi
+
+echo "== Building $OUT_COMBINED (main + signer as separate tracks, signer background: $SIGNER_BG)"
 ffmpeg -y -loglevel warning \
   -i "$IN_MAIN" -i "$IN_SIGN" \
-  -filter_complex "[1:v]crop=1080:1080:420:0,scale=480:480,fps=25[sign]" \
+  -filter_complex "$SIGN_CHAIN" \
   -map 0:v:0 -map 0:a:0 -map "[sign]" \
   -t "$LOOP_SECONDS" \
   -c:v libx264 $PRESET $GOP -pix_fmt yuv420p \
@@ -85,13 +107,13 @@ ffmpeg -y -loglevel warning \
   "$OUT_COMBINED"
 
 # The signer is composited here rather than at serving time. overlay places it
-# top right with a 32 px margin, where the application puts it by default: the
+# in the top right corner with no margin, where the application puts it by default: the
 # two channels are only a fair comparison if the signer is in the same place on
 # both. The bottom of the screen is left to subtitles.
 echo "== Building $OUT_BURNED (signer composited into the picture)"
 ffmpeg -y -loglevel warning \
   -i "$IN_MAIN" -i "$IN_SIGN" \
-  -filter_complex "[1:v]crop=1080:1080:420:0,scale=480:480,fps=25[sign];[0:v:0][sign]overlay=W-w-32:32:shortest=0[out]" \
+  -filter_complex "[1:v]crop=1080:1080:420:0,scale=480:480,fps=25[sign];[0:v:0][sign]overlay=W-w:0:shortest=0[out]" \
   -map "[out]" -map 0:a:0 \
   -t "$LOOP_SECONDS" \
   -c:v libx264 $PRESET $GOP -pix_fmt yuv420p \

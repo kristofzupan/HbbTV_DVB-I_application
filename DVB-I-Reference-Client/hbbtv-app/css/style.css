@@ -53,10 +53,11 @@ html.overlay-mode, body.overlay-mode {
 .interpreter-overlay {
   position: fixed;
   z-index: 10;
-  border: 3px solid rgba(255, 255, 255, 0.7);
-  border-radius: 4px;
   overflow: hidden;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.8);
+}
+
+.interpreter-overlay.grey-bg {
+  background: #808080;
 }
 
 .interpreter-overlay.hidden {
@@ -78,15 +79,15 @@ html.overlay-mode, body.overlay-mode {
 }
 
 /* Position modifiers — 3×3 grid */
-.interpreter-position-tl { top: 2%;  left: 2%; }
-.interpreter-position-tc { top: 2%;  left: 50%; -webkit-transform: translateX(-50%); transform: translateX(-50%); }
-.interpreter-position-tr { top: 2%;  right: 2%; }
-.interpreter-position-ml { top: 50%; left: 2%;  -webkit-transform: translateY(-50%); transform: translateY(-50%); }
+.interpreter-position-tl { top: 0;  left: 0; }
+.interpreter-position-tc { top: 0;  left: 50%; -webkit-transform: translateX(-50%); transform: translateX(-50%); }
+.interpreter-position-tr { top: 0;  right: 0; }
+.interpreter-position-ml { top: 50%; left: 0;  -webkit-transform: translateY(-50%); transform: translateY(-50%); }
 .interpreter-position-mc { top: 50%; left: 50%; -webkit-transform: translate(-50%, -50%); transform: translate(-50%, -50%); }
-.interpreter-position-mr { top: 50%; right: 2%; -webkit-transform: translateY(-50%); transform: translateY(-50%); }
-.interpreter-position-bl { bottom: 2%; left: 2%; }
-.interpreter-position-bc { bottom: 2%; left: 50%; -webkit-transform: translateX(-50%); transform: translateX(-50%); }
-.interpreter-position-br { bottom: 2%; right: 2%; }
+.interpreter-position-mr { top: 50%; right: 0; -webkit-transform: translateY(-50%); transform: translateY(-50%); }
+.interpreter-position-bl { bottom: 0; left: 0; }
+.interpreter-position-bc { bottom: 0; left: 50%; -webkit-transform: translateX(-50%); transform: translateX(-50%); }
+.interpreter-position-br { bottom: 0; right: 0; }
 
 /* Size: set via inline style from app.js (7 steps) */
 

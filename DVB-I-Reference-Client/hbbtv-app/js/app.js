@@ -69,8 +69,10 @@
   var posRow = 0; // top
   var posCol = 2; // right  (default: tr)
 
-  // 7 size steps — widths only (vw); height computed from detected video ratio
-  var SIZE_WIDTHS    = [10, 15, 20, 27, 35, 44, 55];
+  // 7 size steps — widths only (vw); height computed from detected video ratio.
+  // The largest is 50, not 55: the signer is square, and on a 16:9 screen 55vw
+  // is 98% of the height, which leaves no room to move it between rows.
+  var SIZE_WIDTHS    = [10, 15, 20, 27, 35, 44, 50];
   var DEFAULT_SIZE_IDX = 3;
   var sizeIdx        = DEFAULT_SIZE_IDX;
   var videoRatio     = 3 / 4; // default 4:3; updated from stream on first frame
@@ -732,9 +734,10 @@
 
       case VK_BLUE:
       case VK_BLUE2:
-        posRow = 0; posCol = 2; applyPosition();   // top right, as at startup
-        sizeIdx = DEFAULT_SIZE_IDX; applySize();
-        showToast('Ponastavitev');
+        // Grey behind the keyed signer, for a viewer who finds the cut-out hard
+        // to follow against a busy or dark picture.
+        overlay.classList.toggle('grey-bg');
+        showToast(overlay.classList.contains('grey-bg') ? 'Sivo ozadje' : 'Prosojno ozadje');
         e.preventDefault();
         break;
 
@@ -986,7 +989,8 @@
   // A terminal delivers no key events until an application asks for them, so
   // every handler below is dead on a TV without this. The four colour keys plus
   // NAVIGATION are exactly the set app.js binds: RED toggles the overlay, GREEN
-  // and YELLOW resize it, BLUE resets, the arrows move it and BACK closes the
+  // and YELLOW resize it, BLUE puts a grey background behind it, the arrows
+  // move it and BACK closes the
   // controls. Nothing else is requested — keys an application holds are keys
   // the terminal can no longer use for its own UI.
   // NUMERIC is deliberately absent: on a terminal the number keys are how a

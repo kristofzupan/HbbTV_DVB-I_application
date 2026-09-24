@@ -271,12 +271,25 @@ YUVCanvas.prototype.initProgram = function() {
       'uniform sampler2D uSampler;',
       'uniform sampler2D vSampler;',
       'uniform mat4 YUV2RGB;',
+      // Chroma key. keyParams = (key U, key V, similarity, blend), all 0..1.
+      // Distance is measured in the U/V plane only, scaled as ffmpeg's
+      // chromakey scales it, so thresholds tried there carry over unchanged.
+      'uniform float keyOn;',
+      'uniform vec4 keyParams;',
 
       'void main(void) {',
       '  highp float y = texture2D(ySampler,  textureCoord).r;',
       '  highp float u = texture2D(uSampler,  uTextureCoord).r;',
       '  highp float v = texture2D(vSampler,  vTextureCoord).r;',
-      '  gl_FragColor = vec4(y, u, v, 1) * YUV2RGB;',
+      '  vec4 rgb = vec4(y, u, v, 1) * YUV2RGB;',
+      '  float d = length(vec2(u, v) - keyParams.xy) * 0.70711;',
+      '  float a = mix(1.0, clamp((d - keyParams.z) / keyParams.w, 0.0, 1.0), keyOn);',
+      // Despill: green may not exceed the brighter of red and blue. Edge
+      // pixels share their chroma sample with the background, so without this
+      // the signer keeps a green outline.
+      '  rgb.g = mix(rgb.g, min(rgb.g, max(rgb.r, rgb.b)), keyOn);',
+      // Premultiplied, which is what the canvas expects by default.
+      '  gl_FragColor = vec4(rgb.rgb * a, a);',
       '}'
     ].join('\n');
     
@@ -365,7 +378,34 @@ YUVCanvas.prototype.initProgram = function() {
   var YUV2RGBRef = gl.getUniformLocation(program, 'YUV2RGB');
   gl.uniformMatrix4fv(YUV2RGBRef, false, YUV2RGB);
 
+  // Keying starts off, so the picture is exactly what it was before keying
+  // existed until someone asks for it. The yuv422 shader has neither uniform;
+  // a null location makes these calls no-ops.
+  this.keyOnRef     = gl.getUniformLocation(program, 'keyOn');
+  this.keyParamsRef = gl.getUniformLocation(program, 'keyParams');
+  gl.uniform1f(this.keyOnRef, 0);
+  gl.uniform4f(this.keyParamsRef, 0, 0, 0, 1);
+  this.keyState = '';
+
   this.shaderProgram = program;
+};
+
+/**
+ * Turn the chroma key on or off. key = { u, v, similarity, blend }, U and V as
+ * 0..255 code values. Called before every picture, so it only touches GL when
+ * something changed.
+ */
+YUVCanvas.prototype.setChromaKey = function(on, key) {
+  var gl = this.contextGL;
+  if (!gl) return;
+  var state = on ? [key.u, key.v, key.similarity, key.blend].join(',') : 'off';
+  if (state === this.keyState) return;
+  this.keyState = state;
+  gl.useProgram(this.shaderProgram);
+  gl.uniform1f(this.keyOnRef, on ? 1 : 0);
+  if (on) {
+    gl.uniform4f(this.keyParamsRef, key.u / 255, key.v / 255, key.similarity, key.blend);
+  }
 };
 
 /**
@@ -471,12 +511,15 @@ YUVCanvas.prototype.initTextures = function() {
     gl.uniform1i(ySamplerRef, 0);
     this.yTextureRef = yTextureRef;
 
-    var uTextureRef = this.initTexture();
+    // Chroma is sampled linearly. It is half the resolution of the picture, and
+    // the chroma key derives alpha from it, so nearest sampling cuts the signer
+    // out in 2×2 blocks and leaves a staircase along every edge.
+    var uTextureRef = this.initTexture(gl.LINEAR);
     var uSamplerRef = gl.getUniformLocation(program, 'uSampler');
     gl.uniform1i(uSamplerRef, 1);
     this.uTextureRef = uTextureRef;
 
-    var vTextureRef = this.initTexture();
+    var vTextureRef = this.initTexture(gl.LINEAR);
     var vSamplerRef = gl.getUniformLocation(program, 'vSampler');
     gl.uniform1i(vSamplerRef, 2);
     this.vTextureRef = vTextureRef;
@@ -494,13 +537,14 @@ YUVCanvas.prototype.initTextures = function() {
 /**
  * Create and configure a single texture
  */
-YUVCanvas.prototype.initTexture = function() {
+YUVCanvas.prototype.initTexture = function(filter) {
     var gl = this.contextGL;
+    filter = filter || gl.NEAREST;
 
     var textureRef = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, textureRef);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.bindTexture(gl.TEXTURE_2D, null);

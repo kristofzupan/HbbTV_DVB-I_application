@@ -311,6 +311,22 @@
     this._yuvRenderer = null; // YUVCanvas instance
   }
 
+  // The flat colour ffmpeg_stream_commands/prerender puts behind the signer:
+  // 0x00b140, which lands as U 96, V 55 in the encoded stream. That is its
+  // limited-range BT.709 value, because the source is tagged BT.709 and ffmpeg
+  // converts with it; the BT.601 value (U 105, V 58) misses by enough to leave
+  // the background half-transparent. Measured from source_combined.mp4.
+  // similarity and blend are on ffmpeg chromakey's scale. The ramp is wide
+  // because the background is exactly the key colour, so nothing needs a loose
+  // threshold, and a wide ramp is what turns the edge into a soft one. The
+  // nearest thing to the key on the signer is the black jacket, at about 0.22,
+  // which 0.03 + 0.15 still leaves fully opaque.
+  //
+  // Only the WebGL path keys. The software RGBA path would need a per-pixel
+  // loop on the same CPU Broadway is decoding on, so it shows the background.
+  WasmDecoder.CHROMA_KEY  = { u: 96, v: 55, similarity: 0.03, blend: 0.15 };
+  WasmDecoder.chromaKeyOn = true;
+
   // A master clock is only usable if it lands inside the manifest's segment
   // window. If it does not, the two are on different timelines and following it
   // would reposition on every refresh, restarting the decoder each time.
@@ -464,6 +480,7 @@
           try {
             // drawNextOutputPicture({yData,uData,vData}) — first arg passed as `par`
             // to drawNextOuptutPictureGL(par); par.yData/uData/vData are the planes.
+            self._yuvRenderer.setChromaKey(WasmDecoder.chromaKeyOn, WasmDecoder.CHROMA_KEY);
             self._yuvRenderer.drawNextOutputPicture({ yData: yData, uData: uData, vData: vData });
             drawContain(self._ctx, self._yuvCanvas, w, h, self._canvas.width, self._canvas.height);
             self._framesDrawn++;
