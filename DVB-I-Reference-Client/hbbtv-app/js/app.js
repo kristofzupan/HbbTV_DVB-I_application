@@ -40,6 +40,7 @@
   // True once the terminal's own presentation is driving the main picture, in
   // which case the app neither plays nor has a clock for it.
   var terminalPresentsMain  = false;
+  var mediaSync             = null;   // MediaSynchroniser giving the terminal picture's position, if provided
   // True only when this application is itself playing the main picture, which
   // is a browser-only situation. Set once per initSources(); everything that
   // waits on the main video reads it through noMainToAwait() rather than
@@ -162,6 +163,12 @@
     terminalPresentsMain = HbbTV.bindToCurrentChannel();
     if (terminalPresentsMain) {
       console.log('[App] bound to the terminal\'s channel — overlay only');
+      // The terminal's picture has no position we can read directly; ask
+      // MediaSynchroniser for one. Until it answers, or if it is absent, the
+      // decoder paces itself, as before.
+      if (!mediaSync) {
+        HbbTV.startTimelineClock(currentInterpreterUrl, function (ms) { mediaSync = ms; });
+      }
     }
 
     // Presenting the main picture is a browser affordance, never a terminal one.
@@ -396,9 +403,11 @@
   }
 
   function masterClock() {
-    // A terminal is presenting: video/broadcast exposes no presentation
-    // timeline, so there is nothing to follow until MediaSynchroniser exists.
-    if (terminalPresentsMain) { return 0; }
+    // A terminal is presenting: video/broadcast has no playback position, so
+    // read it from MediaSynchroniser (TS 102 796 clause 13.11.3) when the
+    // terminal provides one. NaN, before the timeline is available, and 0, with
+    // no MediaSynchroniser, both mean nothing to follow: the decoder paces itself.
+    if (terminalPresentsMain) { return mediaSync ? (mediaSync.currentTime || 0) : 0; }
     // We are playing the main picture ourselves.
     if (!interpreterOnlyMode && mainVideo) { return mainVideo.currentTime || 0; }
     // Overlay inside a same-origin host: follow the host's picture.

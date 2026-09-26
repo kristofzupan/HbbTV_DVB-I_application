@@ -147,6 +147,67 @@
   };
 
   /**
+   * A readable clock for the picture the terminal is presenting.
+   *
+   * A video/broadcast object has no playback position, and TS 102 796
+   * clause 13.11.2 points to MediaSynchroniser for that: initialised with the
+   * video/broadcast object as master media, its currentTime property reports the
+   * master's position in seconds on the chosen timeline, accurate to 100 ms
+   * (clause 13.11.3), with no other media object needing to be added. That is
+   * what the software decoders need, since a canvas is not a media object that
+   * the terminal could synchronise for us.
+   *
+   * The timeline is the DASH period-relative one, on the manifest the terminal
+   * is presenting. It equals media presentation time where the Period starts at
+   * zero and has no presentationTimeOffset, as ours does, which is what the
+   * decoders read segment times against.
+   *
+   * NOT TESTED. Neither the DVB-I reference client nor HybridTv Viewer provides
+   * oipfObjectFactory.createMediaSynchroniser, so here this calls back with null
+   * and the caller keeps the clock it already had. Unverified on a terminal:
+   * that the period-relative selector is accepted for a video/broadcast master
+   * presenting a DVB-I DASH instance (Table 18 lists it for broadband streaming).
+   *
+   * Calls back with the MediaSynchroniser, or null when it was not started.
+   */
+  var MPD_TICKS_PER_SEC = 1000;
+
+  hbbtv.startTimelineClock = function (manifestUrl, done) {
+    var factory = window.oipfObjectFactory;
+    var bc = document.getElementById('broadcastVideo');
+    if (!factory || typeof factory.createMediaSynchroniser !== 'function' || !bc) {
+      done(null);
+      return;
+    }
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', manifestUrl, true);
+    xhr.onload = function () {
+      var m = /<Period[^>]*\sid="([^"]+)"/.exec(xhr.responseText || '');
+      if (!m) {
+        console.warn('[HbbTV] MediaSynchroniser: manifest Period has no id, no clock');
+        done(null);
+        return;
+      }
+      var selector = 'urn:dvb:css:timeline:mpd:period:rel:' + MPD_TICKS_PER_SEC + ':' + m[1];
+      try {
+        var ms = factory.createMediaSynchroniser();
+        ms.onError = function (code) {
+          console.warn('[HbbTV] MediaSynchroniser error ' + code);
+        };
+        ms.initMediaSynchroniser(bc, selector);
+        console.log('[HbbTV] MediaSynchroniser clock on ' + selector);
+        done(ms);
+      } catch (e) {
+        console.warn('[HbbTV] MediaSynchroniser failed:', e && e.message);
+        done(null);
+      }
+    };
+    xhr.onerror = function () { done(null); };
+    xhr.send();
+  };
+
+  /**
    * Lifecycle: when app is hidden or closed, pause playback (like HbbTV "stop").
    */
   function onHide() {
