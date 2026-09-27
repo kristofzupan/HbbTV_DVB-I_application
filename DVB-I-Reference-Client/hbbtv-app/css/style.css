@@ -89,6 +89,22 @@ html.overlay-mode, body.overlay-mode {
 .interpreter-position-bc { bottom: 0; left: 50%; -webkit-transform: translateX(-50%); transform: translateX(-50%); }
 .interpreter-position-br { bottom: 0; right: 0; }
 
+/* The keyed signer has no visible edge, so it sits flush with the screen edge.
+   The grey box does, and flush against the edge it looks cut off, so it keeps
+   the margin the overlay had before keying. */
+.interpreter-overlay.grey-bg.interpreter-position-tl,
+.interpreter-overlay.grey-bg.interpreter-position-tc,
+.interpreter-overlay.grey-bg.interpreter-position-tr { top: 2%; }
+.interpreter-overlay.grey-bg.interpreter-position-bl,
+.interpreter-overlay.grey-bg.interpreter-position-bc,
+.interpreter-overlay.grey-bg.interpreter-position-br { bottom: 2%; }
+.interpreter-overlay.grey-bg.interpreter-position-tl,
+.interpreter-overlay.grey-bg.interpreter-position-ml,
+.interpreter-overlay.grey-bg.interpreter-position-bl { left: 2%; }
+.interpreter-overlay.grey-bg.interpreter-position-tr,
+.interpreter-overlay.grey-bg.interpreter-position-mr,
+.interpreter-overlay.grey-bg.interpreter-position-br { right: 2%; }
+
 /* Size: set via inline style from app.js (7 steps) */
 
 /* ── Toast notification ──────────────────────────────────────────────────── */
@@ -148,6 +164,13 @@ html.overlay-mode, body.overlay-mode {
   font-size: 0.85rem;
   padding: 0.4rem 1rem;
   text-align: center;
+  opacity: 1;
+  -webkit-transition: opacity 0.6s;
+  transition: opacity 0.6s;
+}
+
+#hintBar.faded {
+  opacity: 0;
 }
 
 /* ── Error overlay ───────────────────────────────────────────────────────── */

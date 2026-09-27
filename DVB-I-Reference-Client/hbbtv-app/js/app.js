@@ -79,6 +79,8 @@
   var videoRatio     = 3 / 4; // default 4:3; updated from stream on first frame
 
   var toastTimer = null;
+  var hintTimer  = null;
+  var HINT_SHOW_MS = 6000;
 
   // Seconds behind the live edge to hold the main picture, so the interpreter
   // decoder has whole segments available at the time the main video is showing.
@@ -438,6 +440,20 @@
     }, 1500);
   }
 
+  // ── Hint bar ───────────────────────────────────────────────────────────────
+  // Shown at startup and after every key, then faded out. Left up for good it
+  // would sit over the lower part of the picture, and the signer's hands.
+  function showHintBar() {
+    var el = document.getElementById('hintBar');
+    if (!el) { return; }
+    el.classList.remove('faded');
+    if (hintTimer) { clearTimeout(hintTimer); }
+    hintTimer = setTimeout(function () {
+      el.classList.add('faded');
+      hintTimer = null;
+    }, HINT_SHOW_MS);
+  }
+
   // ── Overlay position ───────────────────────────────────────────────────────
   function applyPosition() {
     var pos = POS_GRID[posRow][posCol];
@@ -704,8 +720,11 @@
   // refuse it, which is why OK toggles subtitles as well.
   var VK_SUBTITLE = HbbTV.VK_SUBTITLE;
 
+  showHintBar();
+
   document.addEventListener('keydown', function (e) {
     var key = e.keyCode || e.which;
+    showHintBar();
 
     switch (key) {
       case VK_SUBTITLE:
