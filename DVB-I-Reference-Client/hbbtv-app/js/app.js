@@ -79,6 +79,9 @@
   var videoRatio     = 3 / 4; // default 4:3; updated from stream on first frame
 
   var toastTimer = null;
+  var interpreterLoading = false;
+  var loadingPoll = null;
+  var LOADING_MSG = 'Nalaganje tolmača...';
   var hintTimer  = null;
   var HINT_SHOW_MS = 6000;
 
@@ -241,6 +244,7 @@
 
   function applyDecoderMode(mode) {
     decoderMode = mode;
+    setInterpreterLoading(interpreterVisible && !!currentInterpreterUrl);
 
     interpreterDashPlayer = destroyDashPlayer(interpreterDashPlayer);
     if (wasmDecoder) { wasmDecoder.stop(); wasmDecoder = null; }
@@ -261,12 +265,15 @@
       var startWC = function () {
         mainVideo.removeEventListener('playing', startWC);
         if (decoderMode !== 'webcodecs') { return; }
-        if (currentInterpreterUrl && !wasmDecoder) {
-          wasmDecoder = new WebCodecsDecoder(interpreterCanvas, masterClock);
-          wasmDecoder.onFirstFrame = function (w, h) { adaptToVideoRatio(w, h); };
-          wasmDecoder.onError = showError;
-          wasmDecoder.start(currentInterpreterUrl);
-        }
+        whenMasterReady(function () {
+          if (decoderMode !== 'webcodecs') { return; }
+          if (currentInterpreterUrl && !wasmDecoder) {
+            wasmDecoder = new WebCodecsDecoder(interpreterCanvas, masterClock);
+            wasmDecoder.onFirstFrame = function (w, h) { adaptToVideoRatio(w, h); };
+            wasmDecoder.onError = onInterpreterError;
+            wasmDecoder.start(currentInterpreterUrl);
+          }
+        });
       };
       if (noMainToAwait() || !mainVideo.paused) { startWC(); }
       else { mainVideo.addEventListener('playing', startWC); }
@@ -320,12 +327,15 @@
       var startCanvas = function () {
         mainVideo.removeEventListener('playing', startCanvas);
         if (decoderMode !== 'canvas') { return; }
-        if (currentInterpreterUrl && !wasmDecoder) {
-          wasmDecoder = new WasmDecoder(interpreterCanvas, masterClock);
-          wasmDecoder.onFirstFrame = function (w, h) { adaptToVideoRatio(w, h); };
-          wasmDecoder.onError = showError;
-          wasmDecoder.start(currentInterpreterUrl);
-        }
+        whenMasterReady(function () {
+          if (decoderMode !== 'canvas') { return; }
+          if (currentInterpreterUrl && !wasmDecoder) {
+            wasmDecoder = new WasmDecoder(interpreterCanvas, masterClock);
+            wasmDecoder.onFirstFrame = function (w, h) { adaptToVideoRatio(w, h); };
+            wasmDecoder.onError = onInterpreterError;
+            wasmDecoder.start(currentInterpreterUrl);
+          }
+        });
       };
       if (noMainToAwait() || !mainVideo.paused) { startCanvas(); }
       else { mainVideo.addEventListener('playing', startCanvas); }
@@ -428,6 +438,9 @@
   }
 
   // ── Toast ──────────────────────────────────────────────────────────────────
+  // While the interpreter is loading, the toast holds a loading message instead
+  // of disappearing: a key's toast still shows for its 1.5 s, then hands back to
+  // it. Until the first frame the overlay is empty, which otherwise looks broken.
   function showToast(msg) {
     var el = document.getElementById('toast');
     if (!el) { return; }
@@ -435,9 +448,37 @@
     el.style.display = 'block';
     if (toastTimer) { clearTimeout(toastTimer); }
     toastTimer = setTimeout(function () {
-      el.style.display = 'none';
       toastTimer = null;
+      if (interpreterLoading) { el.textContent = LOADING_MSG; }
+      else { el.style.display = 'none'; }
     }, 1500);
+  }
+
+  // The decoder reports its first picture when it is decoded, but at startup
+  // that picture is usually dropped or held until the main video catches up,
+  // so the signer appears seconds later. The loading message waits for the
+  // first frame actually drawn, which the decoder counts in getStats().
+  // native and video-canvas have no decoder object; 'loadeddata' ends theirs.
+  function setInterpreterLoading(on) {
+    interpreterLoading = on;
+    if (loadingPoll) { clearInterval(loadingPoll); loadingPoll = null; }
+    if (on) {
+      loadingPoll = setInterval(function () {
+        var stats = (wasmDecoder && typeof wasmDecoder.getStats === 'function')
+          ? wasmDecoder.getStats() : null;
+        if (stats && stats.drawn > 0) { setInterpreterLoading(false); }
+      }, 100);
+    }
+    if (toastTimer) { return; } // a toast is up; its timeout picks this up
+    var el = document.getElementById('toast');
+    if (!el) { return; }
+    if (on) { el.textContent = LOADING_MSG; el.style.display = 'block'; }
+    else { el.style.display = 'none'; }
+  }
+
+  function onInterpreterError(msg) {
+    setInterpreterLoading(false);
+    showError(msg);
   }
 
   // ── Hint bar ───────────────────────────────────────────────────────────────
@@ -467,11 +508,13 @@
   }
 
   // ── Overlay size ───────────────────────────────────────────────────────────
-  function applySize() {
+  // Announced only when the viewer changed the size. At startup and when the
+  // stream's ratio arrives the toast would cover "Nalaganje tolmača...".
+  function applySize(announce) {
     var w = SIZE_WIDTHS[sizeIdx];
     overlay.style.width  = w + 'vw';
     overlay.style.height = (w * videoRatio).toFixed(3) + 'vw';
-    showToast('Velikost ' + (sizeIdx + 1) + ' / ' + SIZE_WIDTHS.length);
+    if (announce) { showToast('Velikost ' + (sizeIdx + 1) + ' / ' + SIZE_WIDTHS.length); }
   }
 
   // Called when actual video dimensions are known (first frame or loadedmetadata)
@@ -485,7 +528,31 @@
   }
 
   // ── Interpreter decoder start / stop ──────────────────────────────────────
+  // The software decoders choose their first segment from the master clock
+  // once, when they start. Started before the main picture has a position —
+  // the host video still held by autoplay, say — they read 0, guess from the
+  // live edge instead, land seconds behind the picture and drop frames until
+  // they catch up: a stutter on exactly the fast starts. So wait for a
+  // position, but not forever: with no clock at all (a terminal without
+  // MediaSynchroniser, interpreter-only mode) the decoder has to pace itself
+  // anyway, and only the wait is lost.
+  var MASTER_WAIT_MS = 5000;
+  var masterWaitGen  = 0;
+
+  function whenMasterReady(fn) {
+    var gen = ++masterWaitGen;
+    var waited = 0;
+    (function check() {
+      if (gen !== masterWaitGen) { return; } // stopped or restarted meanwhile
+      if (masterClock() > 0 || waited >= MASTER_WAIT_MS) { fn(); return; }
+      waited += 100;
+      setTimeout(check, 100);
+    })();
+  }
+
   function stopInterpreterDecoder() {
+    masterWaitGen++;
+    setInterpreterLoading(false);
     if (wasmDecoder) { wasmDecoder.stop(); wasmDecoder = null; }
     interpreterDashPlayer = destroyDashPlayer(interpreterDashPlayer);
     stopVideoCanvas();
@@ -495,17 +562,24 @@
   function startInterpreterDecoder() {
     if (!currentInterpreterUrl) { return; }
     stopInterpreterDecoder();
+    setInterpreterLoading(true);
 
     if (decoderMode === 'canvas') {
-      wasmDecoder = new WasmDecoder(interpreterCanvas, masterClock);
-      wasmDecoder.onFirstFrame = function (w, h) { adaptToVideoRatio(w, h); };
-      wasmDecoder.start(currentInterpreterUrl);
+      whenMasterReady(function () {
+        wasmDecoder = new WasmDecoder(interpreterCanvas, masterClock);
+        wasmDecoder.onFirstFrame = function (w, h) { adaptToVideoRatio(w, h); };
+        wasmDecoder.onError = onInterpreterError;
+        wasmDecoder.start(currentInterpreterUrl);
+      });
 
     } else if (decoderMode === 'webcodecs') {
       if (window.WebCodecsDecoder) {
-        wasmDecoder = new WebCodecsDecoder(interpreterCanvas, masterClock);
-        wasmDecoder.onFirstFrame = function (w, h) { adaptToVideoRatio(w, h); };
-        wasmDecoder.start(currentInterpreterUrl);
+        whenMasterReady(function () {
+          wasmDecoder = new WebCodecsDecoder(interpreterCanvas, masterClock);
+          wasmDecoder.onFirstFrame = function (w, h) { adaptToVideoRatio(w, h); };
+          wasmDecoder.onError = onInterpreterError;
+          wasmDecoder.start(currentInterpreterUrl);
+        });
       }
 
     } else if (decoderMode === 'video-canvas') {
@@ -748,14 +822,14 @@
 
       case VK_GREEN:
       case VK_GREEN2:
-        if (sizeIdx < SIZE_WIDTHS.length - 1) { sizeIdx++; applySize(); }
+        if (sizeIdx < SIZE_WIDTHS.length - 1) { sizeIdx++; applySize(true); }
         else { showToast('Največja velikost'); }
         e.preventDefault();
         break;
 
       case VK_YELLOW:
       case VK_YELLOW2:
-        if (sizeIdx > 0) { sizeIdx--; applySize(); }
+        if (sizeIdx > 0) { sizeIdx--; applySize(true); }
         else { showToast('Najmanjša velikost'); }
         e.preventDefault();
         break;
@@ -798,6 +872,11 @@
   // ── Video dimension detection ──────────────────────────────────────────────
   interpreterVideo.addEventListener('loadedmetadata', function () {
     adaptToVideoRatio(interpreterVideo.videoWidth, interpreterVideo.videoHeight);
+  });
+
+  // native and video-canvas show a frame as soon as the element has one.
+  interpreterVideo.addEventListener('loadeddata', function () {
+    setInterpreterLoading(false);
   });
 
   // ── Video error handlers ───────────────────────────────────────────────────

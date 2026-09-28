@@ -1,6 +1,6 @@
 1
 00:00:01,290 --> 00:00:06,050
-Vse kakor svetujem  uporabniku,
+Vsekakor svetujem uporabniku,
 da najprej poskusimo s popravilom,
 
 2
@@ -18,7 +18,7 @@ Dober dan, kar naprej.
 
 5
 00:00:21,365 --> 00:00:25,690
-Evo tukaj sem prinesla računalnik,
+Evo, tukaj sem prinesla računalnik,
 to je od moje mame.
 
 6
@@ -27,13 +27,13 @@ Nekaj so težave z njim.
 
 7
 00:00:28,056 --> 00:00:30,788
-Kar vzamite ga iz torbice,
+Kar vzemite ga iz torbice,
 da pogledava.
 
 8
 00:00:32,127 --> 00:00:35,851
 Kakšne težave ima,
-ja je pa res malo starejši že.
+ja, je pa res malo starejši že.
 
 9
 00:00:47,260 --> 00:00:50,260
@@ -88,12 +88,12 @@ tečaj in tako naprej.
 
 20
 00:01:36,015 --> 00:01:40,940
- In to je enota,
+In to je enota,
 na katero se namesti operacijski
 
 21
 00:01:41,020 --> 00:01:44,120
-sistem. Kamor se vse shranjuje,
+sistem, kamor se vse shranjuje.
 
 22
 00:01:45,020 --> 00:01:46,260
@@ -124,13 +124,13 @@ tako, to je stari disk,
 
 28
 00:02:08,160 --> 00:02:12,400
-Tega bomo nadomestili z novim
+tega bomo nadomestili z novim
 elektronskim in to je to.
 
 29
 00:02:18,620 --> 00:02:22,880
 Kaj pa se zgodi,
-ko je prenosnik ima večje težave,
+ko prenosnik ima večje težave,
 
 30
 00:02:22,960 --> 00:02:27,000
@@ -153,7 +153,7 @@ zamenjamo samo sistemsko ploščo.
 
 34
 00:02:41,140 --> 00:02:44,880
-kaj več pa na njej menjati ne moremo,
+Kaj več pa na njej menjati ne moremo,
 kar se tiče računalništva.
 
 35
@@ -163,8 +163,8 @@ jo popravimo.
 
 36
 00:02:49,640 --> 00:02:54,440
-To zahteva predvsej truda,
-zahteva izobrazba,
+To zahteva predvsem truda,
+zahteva izobrazbo,
 
 37
 00:02:54,520 --> 00:02:56,500
@@ -182,11 +182,11 @@ smo naredili veliko,
 
 40
 00:03:06,920 --> 00:03:08,780
-ker to so so zelo drage stvari.
+ker to so zelo drage stvari.
 
 41
 00:03:08,860 --> 00:03:14,920
-In v večjih primerjih menjava te
+In v večjih primerih menjava te
 plošče v prenosniku ni smiselna,
 
 42
@@ -200,7 +200,7 @@ Popravilo plošče je smiselno,
 
 44
 00:03:21,340 --> 00:03:24,960
-ker naša stvoritev je relativno
+ker naša storitev je relativno
 
 45
 00:03:25,040 --> 00:03:29,040
@@ -223,7 +223,7 @@ Ni nas strah reklamacije.
 
 49
 00:03:39,800 --> 00:03:43,740
-Torej si upamo elektroniki reci,
+Torej si upamo elektroniki reči,
 da ta prenosnik bo deloval,
 
 50
@@ -243,7 +243,7 @@ stroške popravila.
 53
 00:03:59,470 --> 00:04:02,210
 Potem bomo prenosnik
-pregledali bolj natačno
+pregledali bolj natančno
 
 54
 00:04:02,290 --> 00:04:04,370

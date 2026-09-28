@@ -240,7 +240,7 @@
         </UriBasedLocation>
       </DASHDeliveryParameters>
     </ServiceInstance>
-    <ServiceName>Kanal z zapečenim tolmačem</ServiceName>
+    <ServiceName>Kanal s fiksnim tolmačem</ServiceName>
     <ProviderName>LMMFE</ProviderName>
   </Service>
 

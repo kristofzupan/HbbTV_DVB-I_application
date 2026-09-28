@@ -30,6 +30,10 @@ set -e
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 IN_MAIN="$ROOT/video_content/main.mp4"
 IN_SIGN="$ROOT/video_content/interpreter.mp4"
+# The broadcaster's own version with the signer already in the picture, used as
+# delivered for the burnt-in channel. Same edit and timing as main.mp4, so the
+# subtitles fit both channels.
+IN_BURNED="$ROOT/video_content/burned.mp4"
 OUT_COMBINED="$ROOT/video_content/source_combined.mp4"
 OUT_BURNED="$ROOT/video_content/source_burned.mp4"
 
@@ -47,7 +51,7 @@ if [ $((LOOP_SECONDS % 4)) -ne 0 ] || \
   exit 2
 fi
 
-for f in "$IN_MAIN" "$IN_SIGN"; do
+for f in "$IN_MAIN" "$IN_SIGN" "$IN_BURNED"; do
   [ -f "$f" ] || { echo "Missing $f" >&2; exit 1; }
 done
 
@@ -82,8 +86,8 @@ PRESET=${PRESET:-"-preset slow"}
 # Y 129, U 96, V 55 (limited-range BT.709, which the source is tagged with);
 # the shader holds those U/V values. Change both together or not at all.
 #
-# Only the combined source is affected: the burnt-in channel keeps its boxed
-# signer until the keyed one has been tested on a television.
+# Only the combined source is affected: the burnt-in channel is the
+# broadcaster's own picture.
 SIGN_FILTER="crop=1080:1080:420:0,scale=480:480,fps=25"
 SIGNER_BG=${SIGNER_BG:-flat}
 if [ "$SIGNER_BG" = "flat" ]; then
@@ -106,15 +110,15 @@ ffmpeg -y -loglevel warning \
   -movflags +faststart \
   "$OUT_COMBINED"
 
-# The signer is composited here rather than at serving time. overlay places it
-# in the top right corner with no margin, where the application puts it by default: the
-# two channels are only a fair comparison if the signer is in the same place on
-# both. The bottom of the screen is left to subtitles.
-echo "== Building $OUT_BURNED (signer composited into the picture)"
+# The burnt-in channel is the broadcaster's version as delivered: picture
+# reduced to the top left, signer on the right. Its layout is theirs, not the
+# application's default, which is the point — it is what a viewer gets today.
+# It is still re-encoded, not copied: the loop needs the same 4 s GOP, bitrate
+# and exact length as the combined source.
+echo "== Building $OUT_BURNED (broadcaster's version with signer)"
 ffmpeg -y -loglevel warning \
-  -i "$IN_MAIN" -i "$IN_SIGN" \
-  -filter_complex "[1:v]crop=1080:1080:420:0,scale=480:480,fps=25[sign];[0:v:0][sign]overlay=W-w:0:shortest=0[out]" \
-  -map "[out]" -map 0:a:0 \
+  -i "$IN_BURNED" \
+  -map 0:v:0 -map 0:a:0 \
   -t "$LOOP_SECONDS" \
   -c:v libx264 $PRESET $GOP -pix_fmt yuv420p \
   -profile:v high -level 4.0 -b:v 3000k -maxrate 3300k -bufsize 6000k \
