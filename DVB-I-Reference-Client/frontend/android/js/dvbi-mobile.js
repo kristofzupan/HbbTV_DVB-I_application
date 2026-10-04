@@ -62,7 +62,10 @@ function channelSelected(channelId) {
   $("#pause").hide();
   $("#play").hide();
   newChannel.channelSelected();
+  var firstTune = !selectedChannel;
   selectedChannel = newChannel;
+  // The first selection is the client starting up, not the viewer choosing.
+  if (typeof logClientState == "function") logClientState(firstTune ? "auto_tuned" : "channel_changed");
 }
 
 window.onload = function () {

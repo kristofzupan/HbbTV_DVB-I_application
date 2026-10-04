@@ -1088,6 +1088,81 @@
     }
   });
 
+  // ── User-test log ──────────────────────────────────────────────────────────
+  // Every key this application answers is logged as what it did — signer_moved,
+  // signer_larger — with the key alongside and the full state after it. Presses
+  // that changed nothing are logged too (move_limit_reached and the like): for
+  // a test participant they show what was tried as much as what was done.
+  // See js/test-session.js and test/report.php.
+  var VIEW_NAMES = ['floating_transparent', 'floating_grey', 'split_overlapping', 'split_side_by_side'];
+  var POSITION_NAMES = {
+    tl: 'top-left',    tc: 'top-centre',    tr: 'top-right',
+    ml: 'middle-left', mc: 'centre',        mr: 'middle-right',
+    bl: 'bottom-left', bc: 'bottom-centre', br: 'bottom-right'
+  };
+  var TEST_KEY_NAMES = {};
+  TEST_KEY_NAMES[VK_RED] = TEST_KEY_NAMES[VK_RED2] = 'red';
+  TEST_KEY_NAMES[VK_GREEN] = TEST_KEY_NAMES[VK_GREEN2] = 'green';
+  TEST_KEY_NAMES[VK_YELLOW] = TEST_KEY_NAMES[VK_YELLOW2] = 'yellow';
+  TEST_KEY_NAMES[VK_BLUE] = TEST_KEY_NAMES[VK_BLUE2] = 'blue';
+  TEST_KEY_NAMES[VK_UP] = 'up';
+  TEST_KEY_NAMES[VK_DOWN] = 'down';
+  TEST_KEY_NAMES[VK_LEFT] = 'left';
+  TEST_KEY_NAMES[VK_RIGHT] = 'right';
+  TEST_KEY_NAMES[VK_ENTER] = 'ok';
+
+  // The size is measured, as a share of the screen width, rather than reported
+  // as a step: the floating views have seven steps and the split views five, so
+  // "step 4" means different things in different views, while 27% of the screen
+  // means the same in all of them. Only while the signer is shown; a position
+  // only in the floating views, the split views having none.
+  function testState() {
+    var size = null;
+    if (interpreterVisible) {
+      var w = overlay.getBoundingClientRect().width;
+      if (w > 0 && window.innerWidth > 0) { size = Math.round(w / window.innerWidth * 100); }
+    }
+    return {
+      signer: interpreterVisible,
+      view: VIEW_NAMES[layoutMode],
+      position: isSplitLayout() ? null : POSITION_NAMES[POS_GRID[posRow][posCol]],
+      signer_size_pct: size
+    };
+  }
+
+  function testLog(action, key) {
+    if (window.TestSession) { window.TestSession.log('signer_app', action, testState(), key); }
+  }
+
+  // The settings before the key, taken in the capture phase on window, which
+  // runs ahead of the handler above whatever the event's target.
+  var testBefore = null;
+  window.addEventListener('keydown', function () {
+    testBefore = { split: isSplitLayout(), size: sizeIdx, splitStep: splitIdx, row: posRow, col: posCol };
+  }, true);
+
+  // What a key did, from the settings before and after it.
+  function testAction(key, b) {
+    var resized = b.split ? splitIdx !== b.splitStep : sizeIdx !== b.size;
+    switch (key) {
+      case 'red':    return interpreterVisible ? 'signer_on' : 'signer_off';
+      case 'green':  return resized ? 'signer_smaller' : 'size_limit_reached';
+      case 'yellow': return resized ? 'signer_larger' : 'size_limit_reached';
+      case 'blue':   return 'view_changed';
+      case 'ok':     return 'ok_pressed';
+      default: // arrows
+        if (b.split) { return 'move_not_possible_in_split_view'; }
+        return (posRow !== b.row || posCol !== b.col) ? 'signer_moved' : 'move_limit_reached';
+    }
+  }
+
+  // Bound after the handler above, so the state recorded is the one it left.
+  document.addEventListener('keydown', function (e) {
+    var key = TEST_KEY_NAMES[e.keyCode || e.which];
+    if (key && testBefore) { testLog(testAction(key, testBefore), key); }
+  });
+  testLog('app_opened');
+
   // ── Video dimension detection ──────────────────────────────────────────────
   interpreterVideo.addEventListener('loadedmetadata', function () {
     adaptToVideoRatio(interpreterVideo.videoWidth, interpreterVideo.videoHeight);

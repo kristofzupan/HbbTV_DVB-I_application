@@ -8,3 +8,5 @@ DVB-I-Reference-Client/stream/
 video_content/
 *.mp4
 latex_mag
+# Test sessions: reset point, participant logs (written by test/*.php)
+test-data/

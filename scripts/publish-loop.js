@@ -60,12 +60,60 @@ const SEG = loop.segmentSeconds;
 
 const segmentNow = () => Math.floor((Date.now() - EPOCH_MS) / 1000 / SEG) + 1;
 
-// Segment n of the endless timeline is segment ((n-1) mod count)+1 of the loop.
-// The count is per presentation: the accessibility channels loop every 248 s,
-// the plain channel every 4296 s, and all of them are numbered from the same
-// epoch, so a segment number still means the same instant on every channel.
-const loopFile = (rep, n, count) =>
-  `chunk-stream${rep}-${String(((n - 1) % count) + 1).padStart(5, '0')}.m4s`;
+// ── Test reset ───────────────────────────────────────────────────────────────
+// The control page for user tests (DVB-I-Reference-Client/test/) starts each
+// participant's session by writing the time into test-data/state.json. From the
+// segment playing at that moment, every loop starts again from its first
+// segment, so every participant sees the same programme from the same point.
+//
+// Only the content restarts, not the timeline. Moving EPOCH_MS instead would
+// send the timeline backwards under every player that is already playing; this
+// way segment numbers and media times keep increasing, and to a player the
+// reset is an ordinary cut.
+//
+// The reset segment is the one players are showing at the reset time —
+// PRESENTATION_DELAY behind the live edge — not the one being published, so the
+// cut happens on screen when the button is pressed, and a television reloading
+// a few seconds later joins a few seconds into the restarted programme. Derived
+// from the stored time rather than kept in memory, so a restart of this process
+// puts it back in the same place.
+const RESET_FILE = path.join(ROOT, 'test-data', 'state.json');
+let resetSegment = 1;
+let resetMtime = 0;
+
+function readReset() {
+  let st;
+  try { st = fs.statSync(RESET_FILE); } catch (e) { return false; }
+  if (st.mtimeMs === resetMtime) return false;
+  resetMtime = st.mtimeMs;
+  let resetAt;
+  try { resetAt = JSON.parse(fs.readFileSync(RESET_FILE, 'utf8')).resetAt; } catch (e) { return false; }
+  if (!resetAt) return false;
+  const n = Math.max(1, Math.floor((resetAt - EPOCH_MS) / 1000 / SEG) + 1
+                        - Math.ceil(PRESENTATION_DELAY / SEG));
+  if (n === resetSegment) return false;
+  resetSegment = n;
+  return true;
+}
+
+// Segment n of the endless timeline is segment loopPosition(n) of the loop. The
+// count is per presentation: the accessibility channels loop every 248 s, the
+// plain channel every 4296 s, and all of them restart together at the reset
+// segment, so a segment number still means the same instant on every channel.
+// Segments before the reset keep the mapping they were published with, counted
+// from the epoch.
+function loopPosition(n, count) {
+  const from = n >= resetSegment ? resetSegment : 1;
+  return ((n - from) % count) + 1;
+}
+
+const loopFile = (rep, position) =>
+  `chunk-stream${rep}-${String(position).padStart(5, '0')}.m4s`;
+
+// Segments at or after this number are rewritten on the next tick even if they
+// exist: after a reset they hold the programme from before it, and at startup
+// they may have been published before a reset this process has not seen.
+let rewriteFrom = 0;
 
 const liveName = (rep, n) => `chunk-stream${rep}-${String(n).padStart(5, '0')}.m4s`;
 
@@ -144,7 +192,7 @@ function shiftTtmlTimes(buf, offsetSeconds) {
   buf.write(shifted, 0, 'latin1');
 }
 
-function publish(name, { segments: count, loopSeconds, representations: reps }) {
+function publish(name, { segments: count, representations: reps }) {
   const dir = path.join(LIVE, name);
   fs.mkdirSync(dir, { recursive: true });
 
@@ -164,12 +212,16 @@ function publish(name, { segments: count, loopSeconds, representations: reps }) 
       const target = path.join(dir, live);
       // Only the newest segment is new on any given tick; rewriting the whole
       // window every four seconds would copy 30 MB to no purpose.
-      if (fs.existsSync(target)) continue;
+      if (n < rewriteFrom && fs.existsSync(target)) continue;
 
-      const loopNumber = Math.floor((n - 1) / count);
-      const offsetTicks = BigInt(loopNumber) * BigInt(loopSeconds) * BigInt(rep.timescale);
-      serveSegment(path.join(LOOP, name, loopFile(rep.id, n, count)), target,
-                   offsetTicks, loopNumber * loopSeconds,
+      // The packaged segment at loop position p begins at (p-1)*SEG; on the
+      // live timeline segment n begins at (n-1)*SEG. The difference is a whole
+      // number of segments, whichever loop and whichever reset this is.
+      const position = loopPosition(n, count);
+      const offsetSeconds = (n - position) * SEG;
+      const offsetTicks = BigInt(offsetSeconds) * BigInt(rep.timescale);
+      serveSegment(path.join(LOOP, name, loopFile(rep.id, position)), target,
+                   offsetTicks, offsetSeconds,
                    rep.contentType === 'text');
     }
   }
@@ -254,6 +306,7 @@ function tick() {
   for (const [name, presentation] of Object.entries(loop.presentations)) {
     latest = publish(name, presentation);
   }
+  rewriteFrom = Infinity;
   return latest;
 }
 
@@ -261,8 +314,18 @@ let previous = 0;
 console.log(`publishing ${SEG}s segments: ` + Object.entries(loop.presentations)
   .map(([name, p]) => `${name} (${p.segments} segments, loop ${p.loopSeconds}s)`)
   .join(', '));
+readReset();
+if (resetSegment > 1) console.log(`loops restarted at segment ${resetSegment}`);
 tick();
 setInterval(() => {
+  // Checked every half second rather than once a segment, so the cut is on
+  // screen within moments of the button being pressed.
+  if (readReset()) {
+    console.log(`test reset: loops restart at segment ${resetSegment}`);
+    rewriteFrom = resetSegment;
+    tick();
+    return;
+  }
   const n = segmentNow();
   if (n !== previous) {
     previous = n;

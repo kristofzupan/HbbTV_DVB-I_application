@@ -139,6 +139,14 @@ if changed "deploy/dvbi-publisher.service"; then
   sudo systemctl daemon-reload
 fi
 
+# ── 5b. User-test data ────────────────────────────────────────────────────────
+# test/*.php (as www-data) writes the session state and participant logs here,
+# and the publisher (as this user) reads the reset time from it. Owned by this
+# user, group www-data and group-writable, with setgid so files PHP creates
+# stay in the group. Idempotent; existing logs are left as they are.
+say "Preparing test-session data"
+sudo install -d -o "$(id -un)" -g www-data -m 2775 test-data test-data/sessions
+
 # ── 6. Check the loop exists ──────────────────────────────────────────────────
 # Nothing is encoded or packaged at serving time, so the segments have to be
 # there before the publisher can start. Building them is deliberately not done
@@ -192,6 +200,9 @@ check "burnt-in channel is live" "$BURNED" 1
 
 NORMAL=$(curl -sf --max-time 10 "$BASE/stream/live/normal/stream.mpd" | grep -cF 'type="dynamic"') || NORMAL=0
 check "plain channel is live" "$NORMAL" 1
+
+# What every television polls; if PHP cannot run it, no reset reaches them.
+check "test-session state is served" "$(count "$BASE/test/state.php" '"counter"')" 1
 
 LIST="$BASE/backend/servicelists/thesis.xml"
 

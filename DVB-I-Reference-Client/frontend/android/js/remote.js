@@ -166,7 +166,11 @@ function changeChannel(step) {
   if (index == -1) index = step > 0 ? -1 : 0;
 
   next = (index + step + channels.length) % channels.length;
+  // Read by logClientState() inside channelSelected(), so the log says which
+  // key changed the channel; a channel chosen by touch carries no key.
+  channelKey = step > 0 ? "channel_up" : "channel_down";
   channelSelected(channels[next].id);
+  channelKey = null;
 
   // The same banner the touch UI shows on selection, so the viewer sees which
   // service they landed on. It hides itself again after five seconds.
@@ -196,6 +200,7 @@ function toggleSubtitleTrack() {
   }
   var on = player.isTextEnabled();
   player.setTextTrack(on ? -1 : 0);
+  logClientState(on ? "subtitles_off" : "subtitles_on", { subtitles: !on }, "subtitle");
   notify(on ? i18n.getString("subtitles_off") : i18n.getString("subtitles_on_prefix") + i18n.getLanguageName(tracks[0].lang || "unknown"));
 }
 
@@ -305,3 +310,36 @@ function onRemoteKeyDown(event) {
 }
 
 document.addEventListener("keydown", onRemoteKeyDown, false);
+
+// ── User-test log ─────────────────────────────────────────────────────────────
+// The client's half of what a test participant does: which channel, and whether
+// subtitles are on. The signer application logs its own half. See
+// hbbtv-app/js/test-session.js and test/report.php.
+var channelKey = null;
+
+function clientTestState() {
+  var state = { channel: null, channel_name: null, subtitles: null };
+  if (selectedChannel) {
+    state.channel = selectedChannel.lcn;
+    try {
+      state.channel_name = getLocalizedText(selectedChannel.titles, language_settings.ui_language);
+    } catch (e) {}
+  }
+  try {
+    if (player) state.subtitles = player.isTextEnabled();
+  } catch (e) {} // no source attached yet
+  return state;
+}
+
+// `override` carries what the client is about to become rather than what the
+// player reports this instant — setTextTrack() does not take effect at once.
+function logClientState(action, override, key) {
+  if (!window.TestSession) return;
+  var state = clientTestState();
+  if (override) {
+    for (var k in override) state[k] = override[k];
+  }
+  TestSession.log("tv", action, state, key || channelKey);
+}
+
+if (window.TestSession) TestSession.setHeartbeatState(clientTestState);
