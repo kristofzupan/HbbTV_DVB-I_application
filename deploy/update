@@ -133,6 +133,15 @@ if changed "deploy/nginx-dvbi.conf"; then
   sudo systemctl reload nginx
 fi
 
+# The location rules both listeners include. Installed by enable-tls the first
+# time; without this, a later change to it would never reach the host.
+if changed "deploy/dvbi-locations.conf"; then
+  say "Installing nginx location rules"
+  sudo cp deploy/dvbi-locations.conf /etc/nginx/snippets/dvbi-locations.conf
+  sudo nginx -t
+  sudo systemctl reload nginx
+fi
+
 if changed "deploy/dvbi-publisher.service"; then
   say "Installing systemd unit"
   sudo cp deploy/dvbi-publisher.service /etc/systemd/system/
