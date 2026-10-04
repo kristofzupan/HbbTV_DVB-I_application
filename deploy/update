@@ -36,6 +36,19 @@ fi
 
 say() { printf '\n\033[1m== %s\033[0m\n' "$1"; }
 
+# The plain channel's source cannot be rebuilt here: ./prerender-normal needs a
+# recording that only exists on the machine that made it. It is copied over once
+# and then left alone, so its absence is a stop rather than a rebuild — and the
+# stop comes before the publisher is, so forgetting the copy costs nothing but a
+# rerun instead of taking every channel down.
+if [ ! -f video_content/source_normal.mp4 ]; then
+  echo "video_content/source_normal.mp4 is missing. Copy it from the machine that" >&2
+  echo "built it (ffmpeg_stream_commands/prerender-normal), e.g.:" >&2
+  echo "  scp video_content/source_normal.mp4 HOST:$ROOT/video_content/" >&2
+  echo "Nothing has been changed." >&2
+  exit 1
+fi
+
 # Prompt for sudo once up front rather than midway through a half-finished update.
 sudo -v
 
@@ -177,6 +190,9 @@ check "MPD declares both main and sign roles" "$ROLES" 2
 BURNED=$(curl -sf --max-time 10 "$BASE/stream/live/burned/stream.mpd" | grep -cF 'type="dynamic"') || BURNED=0
 check "burnt-in channel is live" "$BURNED" 1
 
+NORMAL=$(curl -sf --max-time 10 "$BASE/stream/live/normal/stream.mpd" | grep -cF 'type="dynamic"') || NORMAL=0
+check "plain channel is live" "$NORMAL" 1
+
 LIST="$BASE/backend/servicelists/thesis.xml"
 
 # Match the opening tags, not the bare word: the word also occurs in closing
@@ -185,20 +201,23 @@ LIST="$BASE/backend/servicelists/thesis.xml"
 check "service list declares signing three times" \
       "$(count "$LIST" "<tva:SigningAttributes>")" 3
 
-# Instance-level, inside ContentAttributes: now all three channels. Signing is
-# on 2 and 3 only, but subtitles are on every service, so every ServiceInstance
-# carries one of these blocks. This is what a client reads when matching a
-# viewer's accessibility preferences against service instances (A185r1 clauses
-# 5.1.1 and 5.2.1). Losing it on channel 2 is invisible in the client's own UI
+# The counts below are three, not four: channel 1 is the plain channel and
+# declares no access services at all, so it adds nothing to any of them.
+#
+# Instance-level, inside ContentAttributes: all three accessibility channels.
+# Signing is on 3 and 4 only, but subtitles are on every one of them, so each of
+# their ServiceInstances carries one of these blocks. This is what a client reads
+# when matching a viewer's accessibility preferences against service instances
+# (A185r1 clauses 5.1.1 and 5.2.1). Losing it on channel 3 is invisible in the client's own UI
 # but ranks the burnt-in rendition above the switchable one, which is the wrong
 # way round and was the bug this check exists to catch.
 check "accessibility declared on the service instances" \
       "$(count "$LIST" "<AccessibilityAttributes>")" 3
 
-# Every service carries the same EBU-TT-D track: channels 1 and 2 share one MPD
-# and package-loop cuts the burnt-in channel from the same cues. Declaring it on
-# all three is what keeps them comparable — if subtitles were announced on some
-# services and not others, a difference between channels 2 and 3 could be the
+# Every accessibility service carries the same EBU-TT-D track: channels 2 and 3
+# share one MPD and package-loop cuts the burnt-in channel from the same cues.
+# Declaring it on all three is what keeps them comparable — if subtitles were announced on some
+# services and not others, a difference between channels 3 and 4 could be the
 # subtitles rather than the signer, which is the comparison this project exists
 # to make. The stream carrying cues is not enough on its own: a client decides
 # what to list, and which service to pick for a viewer who wants subtitles,
@@ -206,7 +225,7 @@ check "accessibility declared on the service instances" \
 check "service list declares subtitles three times" \
       "$(count "$LIST" "<tva:SubtitleAttributes>")" 3
 
-# Application-level, inside RelatedMaterial: channel 2 only. Describes what the
+# Application-level, inside RelatedMaterial: channel 3 only. Describes what the
 # linked application provides, and carries the AppInformation that has no
 # meaning for a media component.
 check "signing declared for the linked application" \

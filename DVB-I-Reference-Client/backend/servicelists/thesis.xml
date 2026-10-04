@@ -1,14 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<ServiceList xmlns="urn:dvb:metadata:servicediscovery:2024" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:tva="urn:tva:metadata:2024" xmlns:dvbi-types="urn:dvb:metadata:servicediscovery-types:2023" xsi:schemaLocation="urn:dvb:metadata:servicediscovery:2024 schemas/dvbi_v6.0.xsd" xml:lang="sl" id="tag:lmmfe.org,2026:thesis-accessibility" version="6">
+<ServiceList xmlns="urn:dvb:metadata:servicediscovery:2024" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:tva="urn:tva:metadata:2024" xmlns:dvbi-types="urn:dvb:metadata:servicediscovery-types:2023" xsi:schemaLocation="urn:dvb:metadata:servicediscovery:2024 schemas/dvbi_v6.0.xsd" xml:lang="sl" id="tag:lmmfe.org,2026:thesis-accessibility" version="7">
   <Name>Magisterij seznam storitev</Name>
   <ProviderName>LMMFE</ProviderName>
   <LCNTableList>
     <LCNTable>
-      <LCN channelNumber="1" serviceRef="tag:lmmfe.org,2026:dostopnost1"/>
-      <LCN channelNumber="2" serviceRef="tag:lmmfe.org,2026:dostopnost2"/>
+      <!-- Channel numbers and identifiers are deliberately independent: the plain
+           channel was added in front of the three accessibility channels, which
+           moved them to 2-4 but kept their identifiers, so nothing that refers to
+           a service by id had to change. -->
+      <LCN channelNumber="1" serviceRef="tag:lmmfe.org,2026:program"/>
+      <LCN channelNumber="2" serviceRef="tag:lmmfe.org,2026:dostopnost1"/>
+      <LCN channelNumber="3" serviceRef="tag:lmmfe.org,2026:dostopnost2"/>
       <!-- Without an LCN entry a Service is invisible: the client is configured
            with INCLUDE_NON_LCN_CHANNELS = false, and the schema cannot catch it. -->
-      <LCN channelNumber="3" serviceRef="tag:lmmfe.org,2026:dostopnost3"/>
+      <LCN channelNumber="4" serviceRef="tag:lmmfe.org,2026:dostopnost3"/>
     </LCNTable>
   </LCNTableList>
 
@@ -19,7 +24,25 @@
        schema types it only as anyURI. The id here must stay equal to the
        ServiceListId of the matching offering in backend/slepr-master.xml. -->
 
-  <!-- Channel 1: Live only (no interpreter) -->
+  <!-- Channel 1: an ordinary channel, as a viewer finds it before any access
+       service is involved — a different, hour-long programme with adverts, no
+       signer, no subtitles and no application. It is what the accessibility
+       channels are switched to and from, so it carries no AccessibilityAttributes:
+       declaring none is the accurate statement, not an omission. -->
+  <Service version="1">
+    <UniqueIdentifier>tag:lmmfe.org,2026:program</UniqueIdentifier>
+    <ServiceInstance priority="1">
+      <DASHDeliveryParameters>
+        <UriBasedLocation contentType="application/dash+xml">
+          <dvbi-types:URI>http://localhost:9080/stream/live/normal/stream.mpd</dvbi-types:URI>
+        </UriBasedLocation>
+      </DASHDeliveryParameters>
+    </ServiceInstance>
+    <ServiceName>SLO 1</ServiceName>
+    <ProviderName>LMMFE</ProviderName>
+  </Service>
+
+  <!-- Channel 2: Live only (no interpreter) -->
   <Service version="1">
     <UniqueIdentifier>tag:lmmfe.org,2026:dostopnost1</UniqueIdentifier>
     <ServiceInstance priority="1">
@@ -31,14 +54,14 @@
            segment. Announcing subtitles only inside the MPD makes them
            undiscoverable until after tuning, which is the wrong way round.
 
-           All three services carry the same subtitle track — channels 1 and 2
-           share combined/stream.mpd, and the burnt-in channel is packaged from
-           the same cues — so all three declare it. The values below are
+           All three accessibility services carry the same subtitle track —
+           channels 2 and 3 share combined/stream.mpd, and the burnt-in channel is
+           packaged from the same cues — so all three declare it. The values below are
            identical everywhere and are explained once, here. -->
       <ContentAttributes>
         <AccessibilityAttributes>
           <!-- Order matters: the schema sequences SubtitleAttributes before
-               SigningAttributes, so on channels 2 and 3 this block comes first. -->
+               SigningAttributes, so on channels 3 and 4 this block comes first. -->
           <tva:SubtitleAttributes>
             <!-- Carriage 3 = in ISOBMFF. The cues travel in the fMP4 segments
                  themselves as stpp.ttml.etd1, not as a sidecar file the client
@@ -76,9 +99,9 @@
     <ProviderName>LMMFE</ProviderName>
   </Service>
 
-  <!-- Channel 2: the accessibility channel this project is about. The signer is
+  <!-- Channel 3: the accessibility channel this project is about. The signer is
        a separate video track and an application draws it over the picture, so
-       the viewer can move it, resize it or switch it off. Channel 3 carries the
+       the viewer can move it, resize it or switch it off. Channel 4 carries the
        same programme with the signer burnt in, as the comparison. -->
   <Service version="1">
     <UniqueIdentifier>tag:lmmfe.org,2026:dostopnost2</UniqueIdentifier>
@@ -183,17 +206,17 @@
     <ProviderName>LMMFE</ProviderName>
   </Service>
 
-  <!-- Channel 3: the conventional approach — signer composited into the picture
+  <!-- Channel 4: the conventional approach — signer composited into the picture
        by the encoder. No application, no second decoder, nothing for the client
        to support, and nothing the viewer can move, resize or switch off.
 
-       A separate Service rather than a second ServiceInstance of channel 2.
+       A separate Service rather than a second ServiceInstance of channel 3.
        Modelling it as an instance is arguably the better fit for the standard —
        one service, two renditions, the client picks — but no client here picks:
        the reference client takes the lowest priority number among available
        instances (channel-common.js getServiceInstance) and never consults
        SigningAttributes, so the burnt-in rendition could not be reached at all.
-       As its own channel it is watchable, and flipping between 2 and 3 is the
+       As its own channel it is watchable, and flipping between 3 and 4 is the
        comparison this project exists to make. It is also how signing actually
        ships: every deployment surveyed in A185 annex A uses a separate channel.
 
@@ -205,7 +228,7 @@
     <ServiceInstance priority="1">
       <ContentAttributes>
         <!-- AccessibilityAttributes sits in ContentAttributes, not in
-             RelatedMaterial as on channel 2: here the signing is a property of
+             RelatedMaterial as on channel 3: here the signing is a property of
              the media itself rather than of a linked application. Unprefixed
              because inside ContentAttributes the element is declared by the
              DVB-I schema; inside RelatedMaterial the TVA schema declares it and
@@ -213,7 +236,7 @@
         <AccessibilityAttributes>
           <!-- The burnt-in channel is cut from the same cues by package-loop, so
                it carries the identical subtitle track. Values explained on
-               channel 1. Only the signer differs between 2 and 3; subtitles are
+               channel 2. Only the signer differs between 3 and 4; subtitles are
                constant across all three, which is what makes them a fair
                comparison. -->
           <tva:SubtitleAttributes>
@@ -228,7 +251,7 @@
                  The signer is part of this video, so the codec of the picture is
                  the codec of the access service. -->
             <tva:Coding href="urn:dvb:metadata:cs:VideoCodecCS:2022:1.4.12"/>
-            <tva:SignLanguage>ysl</tva:SignLanguage><!-- same code as channel 2 -->
+            <tva:SignLanguage>ysl</tva:SignLanguage><!-- same code as channel 3 -->
             <!-- Burnt in: the viewer cannot switch it off. -->
             <tva:Closed>false</tva:Closed>
           </tva:SigningAttributes>

@@ -78,12 +78,40 @@
   var sizeIdx        = DEFAULT_SIZE_IDX;
   var videoRatio     = 3 / 4; // default 4:3; updated from stream on first frame
 
+  // Views, cycled by BLUE. The first two float the signer over a full-screen
+  // picture. The other two split the screen the way a burned-in signed edition
+  // does: the main picture shrinks into the top-left corner, the signer sits in
+  // the bottom-right one, and the rest is grey. OVERLAP lets the signer reach
+  // over the picture's edge, SIDE keeps the two apart. In both, GREEN and YELLOW
+  // trade picture size for signer size and the arrows do nothing.
+  var LAYOUT_TRANSPARENT = 0;
+  var LAYOUT_GREY        = 1;
+  var LAYOUT_OVERLAP     = 2;
+  var LAYOUT_SIDE        = 3;
+  var LAYOUT_LABELS = ['Prosojno ozadje', 'Sivo ozadje', 'Tolmač čez sliko', 'Tolmač ob sliki'];
+  var layoutMode    = LAYOUT_TRANSPARENT;
+
+  // Per step: main picture width as a share of the screen width (%) and, for
+  // OVERLAP, signer height as a share of the screen height. For SIDE the signer
+  // takes what the picture leaves. YELLOW moves towards the end of the list: a
+  // larger signer.
+  var OVERLAP_STEPS = [
+    { main: 90, signer: 0.60 },
+    { main: 87, signer: 0.70 },
+    { main: 84, signer: 0.80 },
+    { main: 81, signer: 0.90 },
+    { main: 78, signer: 1.00 }
+  ];
+  var SIDE_STEPS    = [80, 74, 68, 62, 56];
+  var splitIdx      = 2;
+  var MAIN_RATIO    = 9 / 16; // main picture height / width
+
   var toastTimer = null;
   var interpreterLoading = false;
   var loadingPoll = null;
   var LOADING_MSG = 'Nalaganje tolmača...';
   var hintTimer  = null;
-  var HINT_SHOW_MS = 6000;
+  var HINT_SHOW_MS = 30000;
 
   // Seconds behind the live edge to hold the main picture, so the interpreter
   // decoder has whole segments available at the time the main video is showing.
@@ -446,12 +474,28 @@
     if (!el) { return; }
     el.textContent = msg;
     el.style.display = 'block';
+    placeToast(el);
     if (toastTimer) { clearTimeout(toastTimer); }
     toastTimer = setTimeout(function () {
       toastTimer = null;
-      if (interpreterLoading) { el.textContent = LOADING_MSG; }
+      if (interpreterLoading) { el.textContent = LOADING_MSG; placeToast(el); }
       else { el.style.display = 'none'; }
     }, 1500);
+  }
+
+  // Bottom right unless the signer is actually there. Measured rather than read
+  // off the position name, because whether they meet depends on the signer's
+  // size and the view as much as on its corner: a large signer at middle right
+  // reaches the bottom, and the split views always put it bottom right. Called
+  // with the toast already showing its text, since the width depends on it.
+  function placeToast(el) {
+    el.classList.remove('toast-left');
+    if (!interpreterVisible) { return; }
+    var t = el.getBoundingClientRect();
+    var o = overlay.getBoundingClientRect();
+    var overlaps = t.left < o.right && t.right > o.left &&
+                   t.top < o.bottom && t.bottom > o.top;
+    if (overlaps) { el.classList.add('toast-left'); }
   }
 
   // The decoder reports its first picture when it is decoded, but at startup
@@ -472,7 +516,7 @@
     if (toastTimer) { return; } // a toast is up; its timeout picks this up
     var el = document.getElementById('toast');
     if (!el) { return; }
-    if (on) { el.textContent = LOADING_MSG; el.style.display = 'block'; }
+    if (on) { el.textContent = LOADING_MSG; el.style.display = 'block'; placeToast(el); }
     else { el.style.display = 'none'; }
   }
 
@@ -496,21 +540,32 @@
   }
 
   // ── Overlay position ───────────────────────────────────────────────────────
-  function applyPosition() {
-    var pos = POS_GRID[posRow][posCol];
+  function setPositionClass(pos) {
     overlay.classList.remove(
       'interpreter-position-tl', 'interpreter-position-tc', 'interpreter-position-tr',
       'interpreter-position-ml', 'interpreter-position-mc', 'interpreter-position-mr',
       'interpreter-position-bl', 'interpreter-position-bc', 'interpreter-position-br'
     );
     overlay.classList.add('interpreter-position-' + pos);
-    showToast(POS_LABELS[pos]);
+    var toast = document.getElementById('toast');
+    if (toast && toast.style.display === 'block') { placeToast(toast); }
+  }
+
+  function applyPosition(announce) {
+    var pos = POS_GRID[posRow][posCol];
+    setPositionClass(pos);
+    if (announce !== false) { showToast(POS_LABELS[pos]); }
   }
 
   // ── Overlay size ───────────────────────────────────────────────────────────
   // Announced only when the viewer changed the size. At startup and when the
   // stream's ratio arrives the toast would cover "Nalaganje tolmača...".
   function applySize(announce) {
+    if (isSplitLayout()) {
+      applySplit();
+      if (announce) { showToast('Razmerje ' + (splitIdx + 1) + ' / ' + SIDE_STEPS.length); }
+      return;
+    }
     var w = SIZE_WIDTHS[sizeIdx];
     overlay.style.width  = w + 'vw';
     overlay.style.height = (w * videoRatio).toFixed(3) + 'vw';
@@ -525,6 +580,154 @@
     interpreterCanvas.width  = srcW;
     interpreterCanvas.height = srcH;
     applySize(); // reapply current size with correct ratio
+  }
+
+  // ── Views ──────────────────────────────────────────────────────────────────
+  function isSplitLayout() {
+    return layoutMode === LAYOUT_OVERLAP || layoutMode === LAYOUT_SIDE;
+  }
+
+  function applyLayout() {
+    overlay.classList.toggle('grey-bg', layoutMode === LAYOUT_GREY);
+    if (isSplitLayout()) { setPositionClass('br'); }
+    else { applyPosition(false); }
+    applySize();
+    // applySize() only sizes the split views; leaving one hands the picture back.
+    if (!isSplitLayout()) { applySplit(); }
+    showToast(LAYOUT_LABELS[layoutMode]);
+  }
+
+  // Sizes the main picture and the signer for a split view, or gives the main
+  // picture the whole screen back when there is none — including while the
+  // signer is switched off, since a shrunken picture next to nothing is just a
+  // smaller picture.
+  function applySplit() {
+    var split = isSplitLayout() && interpreterVisible;
+    // In a split view the hint bar runs along the grey, not over the picture,
+    // so it stays up.
+    var hint = document.getElementById('hintBar');
+    if (hint) { hint.classList.toggle('pinned', split); }
+    if (!split) {
+      setMainRect(null, null);
+      setGreyFrame(null, null);
+      setSubtitleRect(null, null);
+      return;
+    }
+    // In pixels of the actual window, so the two corners hold on a screen that
+    // is not 16:9 — a browser window, most of all.
+    var sw = window.innerWidth, sh = window.innerHeight;
+    var mainW, sigW, sigH;
+    if (layoutMode === LAYOUT_OVERLAP) {
+      mainW = sw * OVERLAP_STEPS[splitIdx].main / 100;
+      sigH  = sh * OVERLAP_STEPS[splitIdx].signer;
+      sigW  = sigH / videoRatio;
+      if (sigW > sw) { sigW = sw; sigH = sigW * videoRatio; }
+    } else {
+      mainW = sw * SIDE_STEPS[splitIdx] / 100;
+      sigW  = sw - mainW;
+      sigH  = sigW * videoRatio;
+      if (sigH > sh) { sigH = sh; sigW = sigH / videoRatio; }
+    }
+    var mainH = Math.min(mainW * MAIN_RATIO, sh);
+    mainW = Math.round(mainW);
+    mainH = Math.round(mainH);
+    overlay.style.width  = Math.round(sigW) + 'px';
+    overlay.style.height = Math.round(sigH) + 'px';
+    setMainRect(mainW, mainH);
+    setGreyFrame(mainW, mainH);
+    setSubtitleRect(mainW, mainH);
+  }
+
+  window.addEventListener('resize', function () {
+    if (isSplitLayout()) { applySplit(); }
+  });
+
+  // The grey around the picture is two strips — right of it and below it —
+  // rather than a page background. Whatever presents the picture may sit
+  // beneath this page (a terminal's video plane, a hosting client's player),
+  // and a background would paint over it.
+  //
+  // Not when a DVB-I client hosts us: its frame sits above the client's own
+  // channel list and info banner, and so would the strips. There the grey goes
+  // behind the client's player instead — see setHostVideoRect().
+  function setGreyFrame(w, h) {
+    var right  = document.getElementById('greyRight');
+    var bottom = document.getElementById('greyBottom');
+    if (!right || !bottom) { return; }
+    if (w == null || !(appPresentsMain || terminalPresentsMain)) {
+      right.style.display = bottom.style.display = 'none';
+      return;
+    }
+    right.style.left    = w + 'px';
+    bottom.style.top    = h + 'px';
+    bottom.style.width  = w + 'px';
+    right.style.display = bottom.style.display = 'block';
+  }
+
+  // Resizes whichever element presents the main picture. On a terminal that is
+  // the video/broadcast object, which scales the picture to its own box;
+  // in a DVB-I client it is the hosting page's player;
+  // in a browser it is our own element. null restores the full screen.
+  function setMainRect(w, h) {
+    var width  = w == null ? '100%' : w + 'px';
+    var height = h == null ? '100%' : h + 'px';
+    if (appPresentsMain) {
+      mainVideo.style.width  = width;
+      mainVideo.style.height = height;
+    } else if (terminalPresentsMain) {
+      var bc = document.getElementById('broadcastVideo');
+      if (bc) { bc.style.width = width; bc.style.height = height; }
+    } else {
+      setHostVideoRect(w == null ? null : width, height);
+    }
+  }
+
+  // The hosting page's player is not ours, so its own inline style is kept and
+  // put back when the full screen is restored or this page goes away.
+  //
+  // The grey is painted on the player's container. The client draws its UI
+  // above that container, so the grey stays under the channel list and banner
+  // where our own strips (setGreyFrame) would cover them.
+  var hostVideoCss = null;
+  var hostBoxBg    = null;
+
+  function setHostVideoRect(width, height) {
+    if (!hostVideo || !hostVideo.parentNode) { hostVideo = findHostVideo(); }
+    if (!hostVideo) { return; }
+    var box = hostVideo.parentNode;
+    try {
+      if (width == null) {
+        if (hostVideoCss !== null) { hostVideo.style.cssText = hostVideoCss; hostVideoCss = null; }
+        if (hostBoxBg !== null) { box.style.background = hostBoxBg; hostBoxBg = null; }
+        return;
+      }
+      if (hostVideoCss === null) { hostVideoCss = hostVideo.style.cssText; }
+      if (hostBoxBg === null) { hostBoxBg = box.style.background; }
+      box.style.background = '#808080';
+      hostVideo.style.cssText = hostVideoCss +
+        ';position:fixed;left:0;top:0;max-width:none;max-height:none' +
+        ';width:' + width + ';height:' + height;
+    } catch (e) {
+      console.warn('[App] could not resize the host video:', e && e.message);
+    }
+  }
+
+  function restoreHostVideo() { if (hostVideoCss !== null) { setHostVideoRect(null, null); } }
+  window.addEventListener('pagehide', restoreHostVideo);
+  window.addEventListener('unload', restoreHostVideo);
+
+  // Only reaches subtitles this application draws (APP_RENDERED_SUBTITLES);
+  // the terminal's and dash.js's follow the video box on their own. Keeps the
+  // stylesheet's geometry — title-safe area, 10% up from the bottom — but
+  // measured against the picture rather than the screen.
+  function setSubtitleRect(w, h) {
+    if (!subtitleEl) { return; }
+    var s = subtitleEl.style;
+    if (w == null) { s.left = s.right = s.bottom = s.fontSize = ''; return; }
+    s.left     = Math.round(w * 0.1) + 'px';
+    s.right    = Math.round(window.innerWidth - w * 0.9) + 'px';
+    s.bottom   = Math.round(window.innerHeight - h * 0.9) + 'px';
+    s.fontSize = Math.round(w * 0.032) + 'px';
   }
 
   // ── Interpreter decoder start / stop ──────────────────────────────────────
@@ -614,6 +817,7 @@
       stopInterpreterDecoder();
       showToast('Tolmač IZKLOPLJEN');
     }
+    if (isSplitLayout()) { applySplit(); }
   }
 
   // ── Error display ──────────────────────────────────────────────────────────
@@ -800,6 +1004,13 @@
     var key = e.keyCode || e.which;
     showHintBar();
 
+    // The split views fix the signer in the bottom-right corner.
+    if (isSplitLayout() && (key === VK_UP || key === VK_DOWN || key === VK_LEFT || key === VK_RIGHT)) {
+      showToast('Premik v tem pogledu ni mogoč');
+      e.preventDefault();
+      return;
+    }
+
     switch (key) {
       case VK_SUBTITLE:
       case VK_ENTER:
@@ -820,26 +1031,34 @@
         e.preventDefault();
         break;
 
-      case VK_GREEN:
-      case VK_GREEN2:
-        if (sizeIdx < SIZE_WIDTHS.length - 1) { sizeIdx++; applySize(true); }
+      // GREEN shrinks and YELLOW grows: they sit left and right on the remote,
+      // so the pair reads like a slider.
+      case VK_YELLOW:
+      case VK_YELLOW2:
+        if (isSplitLayout()) {
+          if (splitIdx < SIDE_STEPS.length - 1) { splitIdx++; applySize(true); }
+          else { showToast('Največji tolmač'); }
+        } else if (sizeIdx < SIZE_WIDTHS.length - 1) { sizeIdx++; applySize(true); }
         else { showToast('Največja velikost'); }
         e.preventDefault();
         break;
 
-      case VK_YELLOW:
-      case VK_YELLOW2:
-        if (sizeIdx > 0) { sizeIdx--; applySize(true); }
+      case VK_GREEN:
+      case VK_GREEN2:
+        if (isSplitLayout()) {
+          if (splitIdx > 0) { splitIdx--; applySize(true); }
+          else { showToast('Najmanjši tolmač'); }
+        } else if (sizeIdx > 0) { sizeIdx--; applySize(true); }
         else { showToast('Najmanjša velikost'); }
         e.preventDefault();
         break;
 
       case VK_BLUE:
       case VK_BLUE2:
-        // Grey behind the keyed signer, for a viewer who finds the cut-out hard
-        // to follow against a busy or dark picture.
-        overlay.classList.toggle('grey-bg');
-        showToast(overlay.classList.contains('grey-bg') ? 'Sivo ozadje' : 'Prosojno ozadje');
+        // Cycles the views: keyed signer, the same on grey for a viewer who
+        // finds the cut-out hard to follow, then the two split views.
+        layoutMode = (layoutMode + 1) % LAYOUT_LABELS.length;
+        applyLayout();
         e.preventDefault();
         break;
 
@@ -1096,7 +1315,7 @@
   // A terminal delivers no key events until an application asks for them, so
   // every handler below is dead on a TV without this. The four colour keys plus
   // NAVIGATION are exactly the set app.js binds: RED toggles the overlay, GREEN
-  // and YELLOW resize it, BLUE puts a grey background behind it, the arrows
+  // and YELLOW resize it, BLUE cycles the views, the arrows
   // move it and BACK closes the
   // controls. Nothing else is requested — keys an application holds are keys
   // the terminal can no longer use for its own UI.

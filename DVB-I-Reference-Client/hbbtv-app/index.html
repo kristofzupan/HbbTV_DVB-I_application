@@ -57,10 +57,17 @@
        the interpreter overlay that moved to the top right to make room. -->
   <div id="subtitles"></div>
 
+  <!-- Grey around the shrunken main picture in the split views (BLUE). Two
+       strips, right of and below the picture, so nothing paints over it. -->
+  <div id="greyRight" class="grey-frame"></div>
+  <div id="greyBottom" class="grey-frame"></div>
+
   <div id="toast"></div>
 
   <!-- Persistent hint bar -->
-  <div id="hintBar">RDEČ GUMB=vklop/izklop &nbsp;|&nbsp; &#9664;&#9654;&#9650;&#9660;=premik &nbsp;|&nbsp; ZELEN GUMB=povečaj &nbsp;|&nbsp; RUMEN GUMB=pomanjšaj &nbsp;|&nbsp; MODER GUMB=sivo ozadje &nbsp;|&nbsp; TEXT GUMB=podnapisi</div>
+  <!-- Colour keys as drawn squares, not emoji: a TV browser often has no emoji
+       font and would show an empty box. Order follows the remote. -->
+  <div id="hintBar"><span class="key key-red"></span> = vklop/izklop &nbsp;|&nbsp; &#9664;&#9654;&#9650;&#9660; = premik &nbsp;|&nbsp; <span class="key key-green"></span> = pomanjšaj &nbsp;|&nbsp; <span class="key key-yellow"></span> = povečaj &nbsp;|&nbsp; <span class="key key-blue"></span> = pogled &nbsp;|&nbsp; TEXT = podnapisi</div>
 
   <!-- Error display -->
   <div id="errorOverlay"></div>

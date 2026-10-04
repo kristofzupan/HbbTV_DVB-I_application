@@ -57,13 +57,15 @@ const PRESENTATION_DELAY = 12;
 
 const loop = JSON.parse(fs.readFileSync(path.join(LOOP, 'loop.json'), 'utf8'));
 const SEG = loop.segmentSeconds;
-const COUNT = loop.segments;
 
 const segmentNow = () => Math.floor((Date.now() - EPOCH_MS) / 1000 / SEG) + 1;
 
-// Segment n of the endless timeline is segment ((n-1) mod COUNT)+1 of the loop.
-const loopFile = (rep, n) =>
-  `chunk-stream${rep}-${String(((n - 1) % COUNT) + 1).padStart(5, '0')}.m4s`;
+// Segment n of the endless timeline is segment ((n-1) mod count)+1 of the loop.
+// The count is per presentation: the accessibility channels loop every 248 s,
+// the plain channel every 4296 s, and all of them are numbered from the same
+// epoch, so a segment number still means the same instant on every channel.
+const loopFile = (rep, n, count) =>
+  `chunk-stream${rep}-${String(((n - 1) % count) + 1).padStart(5, '0')}.m4s`;
 
 const liveName = (rep, n) => `chunk-stream${rep}-${String(n).padStart(5, '0')}.m4s`;
 
@@ -142,7 +144,7 @@ function shiftTtmlTimes(buf, offsetSeconds) {
   buf.write(shifted, 0, 'latin1');
 }
 
-function publish(name, reps) {
+function publish(name, { segments: count, loopSeconds, representations: reps }) {
   const dir = path.join(LIVE, name);
   fs.mkdirSync(dir, { recursive: true });
 
@@ -164,10 +166,10 @@ function publish(name, reps) {
       // window every four seconds would copy 30 MB to no purpose.
       if (fs.existsSync(target)) continue;
 
-      const loopNumber = Math.floor((n - 1) / COUNT);
-      const offsetTicks = BigInt(loopNumber) * BigInt(loop.loopSeconds) * BigInt(rep.timescale);
-      serveSegment(path.join(LOOP, name, loopFile(rep.id, n)), target,
-                   offsetTicks, loopNumber * loop.loopSeconds,
+      const loopNumber = Math.floor((n - 1) / count);
+      const offsetTicks = BigInt(loopNumber) * BigInt(loopSeconds) * BigInt(rep.timescale);
+      serveSegment(path.join(LOOP, name, loopFile(rep.id, n, count)), target,
+                   offsetTicks, loopNumber * loopSeconds,
                    rep.contentType === 'text');
     }
   }
@@ -249,15 +251,16 @@ ${sets}
 
 function tick() {
   let latest;
-  for (const [name, reps] of Object.entries(loop.presentations)) {
-    latest = publish(name, reps);
+  for (const [name, presentation] of Object.entries(loop.presentations)) {
+    latest = publish(name, presentation);
   }
   return latest;
 }
 
 let previous = 0;
-console.log(`publishing ${Object.keys(loop.presentations).join(', ')} — ` +
-            `${COUNT} segments of ${SEG}s, loop ${loop.loopSeconds}s`);
+console.log(`publishing ${SEG}s segments: ` + Object.entries(loop.presentations)
+  .map(([name, p]) => `${name} (${p.segments} segments, loop ${p.loopSeconds}s)`)
+  .join(', '));
 tick();
 setInterval(() => {
   const n = segmentNow();

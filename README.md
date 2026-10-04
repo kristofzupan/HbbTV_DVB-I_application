@@ -34,10 +34,12 @@ sh ffmpeg_stream_commands/package-loop
 
 (prerender takes a few minutes, only needed once or when source video changes)
 
+`package-loop` also needs `video_content/source_normal.mp4`, the plain channel 1. It is built from a recording that is not in the repository, with `sh ffmpeg_stream_commands/prerender-normal` (about 10 minutes); on any other machine, copy the finished file into `video_content/`.
+
 ## Deploying / updating a host
 
 ```
 sh deploy/update
 ```
 
-Pulls latest, re-applies the host's own address, rebuilds the stream if needed, restarts the publisher service.
+Pulls latest, re-applies the host's own address, rebuilds the stream if needed, restarts the publisher service. Copy `video_content/source_normal.mp4` to the host once beforehand; it cannot be rebuilt there.

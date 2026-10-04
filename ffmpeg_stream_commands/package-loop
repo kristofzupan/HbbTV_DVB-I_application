@@ -21,6 +21,9 @@ set -e
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SRC_COMBINED="$ROOT/video_content/source_combined.mp4"
 SRC_BURNED="$ROOT/video_content/source_burned.mp4"
+# The plain channel: a separate, much longer programme with no signer and no
+# subtitles. Built by ./prerender-normal, on the machine holding its recording.
+SRC_NORMAL="$ROOT/video_content/source_normal.mp4"
 SUBS="$ROOT/DVB-I-Reference-Client/hbbtv-app/subtitles/main_slv.xml"
 LOOP="$ROOT/DVB-I-Reference-Client/stream/loop"
 
@@ -29,6 +32,11 @@ SEG_SECONDS=${SEG_SECONDS:-4}
 for f in "$SRC_COMBINED" "$SRC_BURNED" "$SUBS"; do
   [ -f "$f" ] || { echo "Missing $f — run ./prerender first" >&2; exit 1; }
 done
+[ -f "$SRC_NORMAL" ] || {
+  echo "Missing $SRC_NORMAL — run ./prerender-normal where the recording is," >&2
+  echo "or copy the file over from a machine that has it" >&2
+  exit 1
+}
 
 command -v MP4Box >/dev/null || {
   echo "MP4Box not found. Install GPAC (macOS: brew install gpac,"          >&2
@@ -37,7 +45,7 @@ command -v MP4Box >/dev/null || {
 }
 
 rm -rf "$LOOP"
-mkdir -p "$LOOP/combined" "$LOOP/burned"
+mkdir -p "$LOOP/combined" "$LOOP/burned" "$LOOP/normal"
 
 # -window_size 0 keeps every segment rather than rolling a live window, and
 # -remove_at_exit is deliberately absent: these files are the product.
@@ -55,16 +63,27 @@ dash_av() {
     "$_out/packager.mpd"
 }
 
-DURATION=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$SRC_COMBINED" | cut -d. -f1)
-TARGET_SEGS=$((DURATION / SEG_SECONDS))
-[ $((TARGET_SEGS * SEG_SECONDS)) -eq "$DURATION" ] || {
-  echo "Source is ${DURATION}s, not a whole number of ${SEG_SECONDS}s segments — run ./prerender" >&2
-  exit 1
+whole_segments() {
+  _d=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$1" | cut -d. -f1)
+  [ $(( (_d / SEG_SECONDS) * SEG_SECONDS )) -eq "$_d" ] || {
+    echo "$1 is ${_d}s, not a whole number of ${SEG_SECONDS}s segments — re-run its prerender" >&2
+    exit 1
+  }
+  echo "$_d"
 }
+
+# The two accessibility channels share one loop length; the plain channel has
+# its own. Each presentation is numbered and verified against its own count, and
+# the publisher wraps each one separately.
+DURATION=$(whole_segments "$SRC_COMBINED")
+TARGET_SEGS=$((DURATION / SEG_SECONDS))
+NORMAL_DURATION=$(whole_segments "$SRC_NORMAL")
+NORMAL_SEGS=$((NORMAL_DURATION / SEG_SECONDS))
 
 echo "== Segmenting audio and video"
 dash_av "$SRC_COMBINED" "$LOOP/combined" -map 0:v:0 -map 0:a:0 -map 0:v:1
 dash_av "$SRC_BURNED"   "$LOOP/burned"   -map 0:v:0 -map 0:a:0
+dash_av "$SRC_NORMAL"   "$LOOP/normal"   -map 0:v:0 -map 0:a:0
 
 # An AAC frame is 1024 samples, so at 48 kHz a segment holds 187.5 of them and
 # audio can never be cut at exactly four seconds. ffmpeg deals with that by
@@ -77,10 +96,10 @@ dash_av "$SRC_BURNED"   "$LOOP/burned"   -map 0:v:0 -map 0:a:0
 # more than one fragment, so the result is a valid slightly-longer last segment,
 # and the loop still totals exactly the source duration.
 normalise_segments() {
-  _dir=$1
+  _dir=$1; _target=$2
   for _rep in $(ls "$_dir" | sed -n 's/^chunk-stream\([0-9]*\)-.*/\1/p' | sort -u); do
     _n=$(ls "$_dir"/chunk-stream$_rep-*.m4s | wc -l | tr -d ' ')
-    while [ "$_n" -gt "$TARGET_SEGS" ]; do
+    while [ "$_n" -gt "$_target" ]; do
       _last=$(printf '%s/chunk-stream%s-%05d.m4s' "$_dir" "$_rep" "$_n")
       _prev=$(printf '%s/chunk-stream%s-%05d.m4s' "$_dir" "$_rep" $((_n - 1)))
       cat "$_last" >> "$_prev"
@@ -89,8 +108,9 @@ normalise_segments() {
     done
   done
 }
-normalise_segments "$LOOP/combined"
-normalise_segments "$LOOP/burned"
+normalise_segments "$LOOP/combined" "$TARGET_SEGS"
+normalise_segments "$LOOP/burned"   "$TARGET_SEGS"
+normalise_segments "$LOOP/normal"   "$NORMAL_SEGS"
 
 # The subtitle track is the same document on both channels: the burnt-in channel
 # needs subtitles as much as the overlay one, and a viewer comparing them should
@@ -136,21 +156,26 @@ rm -rf "$_tmp"
 # that a single fixed-width write: no sidx to keep in agreement, and a 64-bit
 # tfdt in every representation.
 echo "== Normalising segments"
-python3 "$ROOT/scripts/normalise-segments.py" "$LOOP/combined" "$LOOP/burned"
+python3 "$ROOT/scripts/normalise-segments.py" "$LOOP/combined" "$LOOP/burned" "$LOOP/normal"
 
 # What the publisher needs to describe these files in a manifest, recorded here
 # so that nothing has to probe media at serving time. Roles are assigned by
 # position, which is what the -map order in ./prerender fixes: video, audio,
-# signer on the overlay channel; video, audio on the burnt-in one.
+# signer on the overlay channel; video, audio on the burnt-in and plain ones.
+#
+# Segment count and loop length are recorded per presentation, because they
+# differ: the publisher wraps each presentation at its own length.
 echo "== Describing the loop"
-python3 - "$LOOP" "$TARGET_SEGS" "$SEG_SECONDS" "$DURATION" "$SUB_IDX_COMBINED" "$SUB_IDX_BURNED" <<'PY'
+python3 - "$LOOP" "$SEG_SECONDS" "$TARGET_SEGS" "$DURATION" "$NORMAL_SEGS" "$NORMAL_DURATION" \
+          "$SUB_IDX_COMBINED" "$SUB_IDX_BURNED" <<'PY'
 import json, sys, xml.etree.ElementTree as ET, os
-loop, segs, segsec, dur, sub_c, sub_b = sys.argv[1:7]
+loop, segsec, segs, dur, n_segs, n_dur, sub_c, sub_b = sys.argv[1:9]
 NS = "{urn:mpeg:dash:schema:mpd:2011}"
-out = {"segments": int(segs), "segmentSeconds": int(segsec),
-       "loopSeconds": int(dur), "presentations": {}}
+out = {"segmentSeconds": int(segsec), "presentations": {}}
 
-for name, sub_idx in (("combined", int(sub_c)), ("burned", int(sub_b))):
+for name, sub_idx, p_segs, p_dur in (("combined", int(sub_c), segs, dur),
+                                     ("burned", int(sub_b), segs, dur),
+                                     ("normal", None, n_segs, n_dur)):
     reps = []
     tree = ET.parse(os.path.join(loop, name, "packager.mpd"))
     for aset in tree.getroot().iter(NS + "AdaptationSet"):
@@ -169,9 +194,10 @@ for name, sub_idx in (("combined", int(sub_c)), ("burned", int(sub_b))):
     if len(reps) == 3:
         reps[0]["role"] = "main"
         reps[2]["role"] = "sign"
-    reps.append({"id": str(sub_idx), "contentType": "text",
-                 "mimeType": "application/mp4", "codecs": "stpp.ttml.etd1",
-                 "bandwidth": 2500, "lang": "sl", "role": "subtitle"})
+    if sub_idx is not None:
+        reps.append({"id": str(sub_idx), "contentType": "text",
+                     "mimeType": "application/mp4", "codecs": "stpp.ttml.etd1",
+                     "bandwidth": 2500, "lang": "sl", "role": "subtitle"})
 
     # The media timescale of each track, read out of its init segment. The
     # publisher needs it to turn "this is the nth time round the loop" into the
@@ -186,13 +212,15 @@ for name, sub_idx in (("combined", int(sub_c)), ("burned", int(sub_b))):
         r["timescale"] = struct.unpack(">I", init[j + 20:j + 24] if ver == 1
                                        else init[j + 16:j + 20])[0]
 
-    out["presentations"][name] = reps
+    out["presentations"][name] = {"segments": int(p_segs),
+                                  "loopSeconds": int(p_dur),
+                                  "representations": reps}
 
 with open(os.path.join(loop, "loop.json"), "w") as f:
     json.dump(out, f, indent=2)
 print(f"  {loop}/loop.json")
 PY
-rm -f "$LOOP"/combined/packager.mpd "$LOOP"/burned/packager.mpd
+rm -f "$LOOP"/combined/packager.mpd "$LOOP"/burned/packager.mpd "$LOOP"/normal/packager.mpd
 
 # Two things have to hold, and neither is visible by looking at the files. Every
 # representation must have the same number of segments, so one segment number
@@ -203,15 +231,16 @@ rm -f "$LOOP"/combined/packager.mpd "$LOOP"/burned/packager.mpd
 # after five days rather than at packaging time.
 echo "== Verifying"
 fail=0
-for d in combined burned; do
+for d in combined burned normal; do
   case "$d" in
-    combined) sub_idx=$SUB_IDX_COMBINED ;;
-    burned)   sub_idx=$SUB_IDX_BURNED ;;
+    combined) sub_idx=$SUB_IDX_COMBINED; want_segs=$TARGET_SEGS; want_dur=$DURATION ;;
+    burned)   sub_idx=$SUB_IDX_BURNED;   want_segs=$TARGET_SEGS; want_dur=$DURATION ;;
+    normal)   sub_idx="";                want_segs=$NORMAL_SEGS; want_dur=$NORMAL_DURATION ;;
   esac
   for rep in $(ls "$LOOP/$d" | sed -n 's/^chunk-stream\([0-9]*\)-.*/\1/p' | sort -u); do
     n=$(ls "$LOOP/$d"/chunk-stream$rep-*.m4s 2>/dev/null | wc -l | tr -d ' ')
     [ -f "$LOOP/$d/init-stream$rep.m4s" ] || { echo "    FAIL: no init segment" >&2; fail=1; }
-    [ "$n" = "$TARGET_SEGS" ] || { echo "    FAIL: expected $TARGET_SEGS segments" >&2; fail=1; }
+    [ "$n" = "$want_segs" ] || { echo "    FAIL: expected $want_segs segments" >&2; fail=1; }
 
     # Subtitles are sampled where cues are, not continuously: the periods
     # between cues carry an empty document and the track has no samples of its
@@ -242,12 +271,12 @@ for d in combined burned; do
     # 21 ms once per loop, not an offset that grows — unlike the 56 ms per loop
     # that compounded into 94 seconds when the subtitles were replayed against a
     # measured length. Anything larger than a frame is not that, and still fails.
-    awk -v got="$dur" -v want="$DURATION" -v slack=0.0214 '
+    awk -v got="$dur" -v want="$want_dur" -v slack=0.0214 '
       BEGIN {
         d = got - want;
         if (d < 0) d = -d;
         exit (d <= slack) ? 0 : 1;
-      }' || { echo "    FAIL: decodes to $dur, expected $DURATION (±0.0214)" >&2; fail=1; }
+      }' || { echo "    FAIL: decodes to $dur, expected $want_dur (±0.0214)" >&2; fail=1; }
   done
 done
 # Counts and durations cannot see a subtitle track whose segments are in the
@@ -287,4 +316,4 @@ sys.exit(1 if bad else 0)
 PY
 
 [ "$fail" = "0" ] || exit 1
-echo "  ok — every representation is $TARGET_SEGS segments totalling ${DURATION}s"
+echo "  ok — combined and burned are $TARGET_SEGS segments totalling ${DURATION}s, normal $NORMAL_SEGS totalling ${NORMAL_DURATION}s"

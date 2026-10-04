@@ -91,13 +91,27 @@ html.overlay-mode, body.overlay-mode {
 
 /* Size: set via inline style from app.js (7 steps) */
 
+/* ── Split views: grey around the main picture ───────────────────────────── */
+/* Above the main video, below subtitles, hint bar and signer. Edges facing the
+   picture are set from app.js; the rest run to the screen edge. */
+.grey-frame {
+  position: fixed;
+  z-index: 1;
+  display: none;
+  background: #808080;
+}
+
+#greyRight  { top: 0; right: 0; bottom: 0; }
+#greyBottom { left: 0; bottom: 0; }
+
 /* ── Toast notification ──────────────────────────────────────────────────── */
+/* Just above the hint bar, bottom right: the bottom left is where a hosting
+   DVB-I client puts its channel banner. app.js adds toast-left only when the
+   signer would cover the toast where it is. */
 #toast {
   position: fixed;
-  top: 8%;
-  left: 50%;
-  -webkit-transform: translateX(-50%);
-  transform: translateX(-50%);
+  bottom: 2.6rem;
+  right: 1.5rem;
   z-index: 200;
   background: rgba(0, 0, 0, 0.82);
   color: #fff;
@@ -108,6 +122,11 @@ html.overlay-mode, body.overlay-mode {
   border: 2px solid rgba(255, 255, 255, 0.3);
   display: none;
   white-space: nowrap;
+}
+
+#toast.toast-left {
+  right: auto;
+  left: 1.5rem;
 }
 
 /* ── Hint bar ────────────────────────────────────────────────────────────── */
@@ -142,7 +161,7 @@ html.overlay-mode, body.overlay-mode {
   bottom: 0;
   left: 0;
   right: 0;
-  z-index: 5;
+  z-index: 11; /* in front of the signer (10) wherever it is placed */
   background: rgba(0, 0, 0, 0.55);
   color: rgba(255, 255, 255, 0.65);
   font-size: 0.8rem;
@@ -157,10 +176,30 @@ html.overlay-mode, body.overlay-mode {
   opacity: 0;
 }
 
+/* Colour key squares in the hint bar */
+#hintBar .key {
+  display: inline-block;
+  width: 1.4em;
+  height: 0.9em;
+  vertical-align: -0.1em;
+  border-radius: 2px;
+}
+#hintBar .key-red    { background: #e01b1b; }
+#hintBar .key-green  { background: #1fa83a; }
+#hintBar .key-yellow { background: #f0c419; }
+#hintBar .key-blue   { background: #1f6fe0; }
+
+/* Split views: always shown. */
+#hintBar.pinned,
+#hintBar.pinned.faded {
+  opacity: 1;
+}
+
 /* ── Error overlay ───────────────────────────────────────────────────────── */
+/* At the top: the bottom edge belongs to the hint bar and the toast. */
 #errorOverlay {
   position: fixed;
-  bottom: 2.5rem;
+  top: 2rem;
   left: 2rem;
   right: 2rem;
   z-index: 200;
