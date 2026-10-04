@@ -153,6 +153,16 @@ function csv_row($out, $row)
     fputcsv($out, $row, ',', '"', '');
 }
 
+// What kind of device it was, as it reported itself (test-session.js):
+// android_apk, samsung_tizen, lg_webos, hbbtv_tv or browser.
+function type_of($events)
+{
+    foreach ($events as $e) {
+        if (!empty($e['deviceType'])) return $e['deviceType'];
+    }
+    return '';
+}
+
 function by_device($events)
 {
     $by = [];
@@ -169,14 +179,15 @@ fwrite($out, "\xEF\xBB\xBF");
 
 if ($type === 'events') {
     csv_row($out, array_merge(
-        ['session', 'participant', 'device', 'time', 'seconds_into_session', 'from', 'action', 'key'],
+        ['session', 'participant', 'device', 'device_type', 'time', 'seconds_into_session', 'from', 'action', 'key'],
         TV_FIELDS, APP_FIELDS
     ));
     foreach ($sessions as $s) {
         foreach (by_device(load_events($s['id'])) as $device => $events) {
-            replay($events, function ($e, $st) use ($out, $s, $device) {
+            $dtype = type_of($events);
+            replay($events, function ($e, $st) use ($out, $s, $device, $dtype) {
                 $row = [
-                    $s['id'], $s['participant'], $device,
+                    $s['id'], $s['participant'], $device, $dtype,
                     date('Y-m-d H:i:s', (int) ($e['t'] / 1000)) . sprintf('.%03d', $e['t'] % 1000),
                     sprintf('%.1f', ($e['t'] - $s['startedAt']) / 1000),
                     source_of($e), $e['action'] ?? '', $e['key'] ?? '',
@@ -190,16 +201,16 @@ if ($type === 'events') {
 }
 
 // ── Summary ──────────────────────────────────────────────────────────────────
-// One row per session and device. Only the test television records by default,
-// so normally that is one row per participant; anything else that recorded —
-// a browser opened with ?testlog=1 during a test — gets a row of its own
-// rather than being added into the participant's numbers.
+// One row per session and device. Every device records, so anything else that
+// was watching during a test — a laptop, someone looking online — gets a row of
+// its own beside the participant's television, never added into its numbers;
+// device_type tells the rows apart.
 $rows = [];
 $columns = []; // dimension => [value => true], so every row has the same columns
 foreach ($sessions as $s) {
     foreach (by_device(load_events($s['id'])) as $device => $events) {
         $r = [
-            's' => $s, 'device' => $device, 'time' => [], 'watched' => 0,
+            's' => $s, 'device' => $device, 'type' => type_of($events), 'time' => [], 'watched' => 0,
             'presses' => 0, 'no_effect' => 0, 'first_press' => null,
             'counts' => array_fill_keys(COUNTERS, 0), 'final' => null,
         ];
@@ -238,7 +249,7 @@ foreach ($columns as $d => $vals) {
     ksort($columns[$d], SORT_NATURAL);
 }
 
-$header = ['session', 'participant', 'device', 'started', 'watched_seconds',
+$header = ['session', 'participant', 'device', 'device_type', 'started', 'watched_seconds',
            'button_presses', 'presses_without_effect', 'seconds_to_first_press'];
 $header = array_merge($header, COUNTERS);
 foreach (DIMENSIONS as $d) $header[] = 'at_end_' . $d;
@@ -249,7 +260,7 @@ csv_row($out, $header);
 
 foreach ($rows as $r) {
     $row = [
-        $r['s']['id'], $r['s']['participant'], $r['device'],
+        $r['s']['id'], $r['s']['participant'], $r['device'], $r['type'],
         date('Y-m-d H:i:s', (int) ($r['s']['startedAt'] / 1000)),
         sprintf('%.1f', $r['watched'] / 1000),
         $r['presses'], $r['no_effect'],

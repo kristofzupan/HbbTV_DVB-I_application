@@ -67,20 +67,28 @@
     try { window.localStorage.setItem(key, value); } catch (e) { /* full or blocked */ }
   }
 
-  // Only the test television is recorded. The APK injects android_interface
-  // into the page (WebViewConfiguration.java); a browser has nothing of the
-  // kind, so someone watching online, or the experimenter checking from a
-  // laptop mid-test, does not end up in a participant's results. ?testlog=1
-  // records a browser anyway, for trying the logging out. Unrecorded pages
-  // still reload on a reset and on return, which is harmless.
-  var RECORD = typeof window.android_interface !== 'undefined' ||
-               /[?&]testlog=1(&|$)/.test(window.location.search);
+  // Every device records, and says what it is. Deciding here which devices
+  // count would mean recognising the test television, and a television that
+  // was not recognised would silently record nothing. Instead the report keeps
+  // each device apart — its own row — so someone watching online, or the
+  // experimenter checking from a laptop mid-test, shows up beside the
+  // participant's television rather than inside its numbers.
+  //
+  // The APK injects android_interface (WebViewConfiguration.java); the others
+  // are told apart by how their browser names itself.
+  var ua = navigator.userAgent || '';
+  var DEVICE_TYPE =
+    typeof window.android_interface !== 'undefined' ? 'android_apk' :
+    /Tizen|SMART-TV/i.test(ua) ? 'samsung_tizen' :
+    /Web0S|webOS/.test(ua) ? 'lg_webos' :
+    /HbbTV/i.test(ua) ? 'hbbtv_tv' :
+    'browser';
 
-  // Stable across reloads on the television. A browser keeps its id per tab
+  // Stable across reloads on a television. A browser keeps its id per tab
   // instead: tabs share localStorage, and two tabs under one id would read as
   // one television flicking between two states.
   var device;
-  if (typeof window.android_interface !== 'undefined') {
+  if (DEVICE_TYPE !== 'browser') {
     device = storageGet(DEVICE_KEY);
     if (!device) {
       device = 'tv-' + Math.random().toString(36).slice(2, 10);
@@ -104,10 +112,10 @@
   }
 
   function log(source, action, state, key) {
-    if (!RECORD) return;
     queue.push({
       t: Date.now(),
       device: device,
+      deviceType: DEVICE_TYPE,
       // Stamped now when known. Events from before the first poll are stamped
       // when sent, which is moments later and in the same session.
       session: session,

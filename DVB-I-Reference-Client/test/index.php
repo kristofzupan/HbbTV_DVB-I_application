@@ -211,7 +211,8 @@ $h = function ($s) {
   <!-- Keep in step with report.php. -->
   <details class="card">
     <summary><strong>What the CSV columns mean</strong></summary>
-    <h2 style="margin-top: 14px">Summary CSV — one row per participant</h2>
+    <h2 style="margin-top: 14px">Summary CSV — one row per participant and device</h2>
+    <p class="muted">Every device that has the client or the app open is recorded, each in its own row. The participant's television is the row whose <code>device_type</code> is the TV: <code>android_apk</code> (Philips with the reference client app), <code>samsung_tizen</code>, <code>lg_webos</code> or <code>hbbtv_tv</code>. A <code>browser</code> row is a laptop or phone that had the page open at the time — ignore it.</p>
     <table>
       <tr><td><code>watched_seconds</code></td><td>Time the TV was showing the client. Time in the background, and silences over 40 s (TV off, network down), are not counted.</td></tr>
       <tr><td><code>button_presses</code></td><td>Every key the participant pressed that the client or the signer app handles.</td></tr>
