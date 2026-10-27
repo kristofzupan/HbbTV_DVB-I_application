@@ -267,7 +267,18 @@ function manifest(reps, oldest, latest) {
       ? '\n        <AudioChannelConfiguration schemeIdUri="urn:mpeg:dash:23003:3:audio_channel_configuration:2011" value="2"/>'
       : '';
 
-    return `    <AdaptationSet contentType="${r.contentType}"${lang}${dims} segmentAlignment="true" startWithSAP="1">${role}
+    // A player picks its initial video AdaptationSet by @selectionPriority
+    // (DASH-IF IOP v4.3 clause 3.9, step 5), not by Role: without it the choice
+    // is the player's own, and the main picture won only because dash.js falls
+    // back to the higher bitrate. Ranking main above sign makes a client that
+    // knows nothing of the signer present the programme by rule rather than by
+    // accident. Higher wins and the default is 1, so main keeps the default and
+    // the signer drops below it; both are written out rather than leaning on
+    // every player applying the default the same way.
+    const priority = r.role === 'main' ? ' selectionPriority="1"'
+      : r.role === 'sign' ? ' selectionPriority="0"' : '';
+
+    return `    <AdaptationSet contentType="${r.contentType}"${lang}${dims}${priority} segmentAlignment="true" startWithSAP="1">${role}
       <Representation ${repAttrs}>${audioChannels}
         <SegmentTemplate timescale="1000" duration="${SEG * 1000}" startNumber="${oldest}"
                          initialization="init-stream${r.id}.m4s"
