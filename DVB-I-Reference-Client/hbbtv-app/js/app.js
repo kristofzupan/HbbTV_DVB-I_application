@@ -172,13 +172,13 @@
   // ── Source initialisation ──────────────────────────────────────────────────
   function initSources() {
     var urlParams = getUrlParams();
-    // Both defaults are the combined manifest, not the separate main/interpreter
-    // ones: those stopped being published when the two tracks moved into a single
+    // Both defaults are channel 3's manifest, which carries main and signer
+    // together, not the separate main/interpreter ones: those stopped being published when the two tracks moved into a single
     // encoder, and a default that 404s costs nothing at load time — it fails
     // inside the decoder's retry loop, which reports to the console and leaves an
     // empty overlay on screen. dash.js takes the main role from this manifest and
     // the software decoder takes the sign role, so they also share a timeline.
-    var COMBINED_MPD = 'http://localhost:9080/stream/live/combined/stream.mpd';
+    var COMBINED_MPD = 'http://localhost:9080/stream/live/prenosniki/stream.mpd';
     var mainUrl   = urlParams.main        || COMBINED_MPD;
     var interpUrl = urlParams.interpreter || COMBINED_MPD;
 

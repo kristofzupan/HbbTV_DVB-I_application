@@ -222,17 +222,17 @@ $h = function ($s) {
       <tr><td><code>at_end_…</code></td><td>The setting when the session ended. Empty if it did not exist then (e.g. no signer on that channel).</td></tr>
       <tr><td><code>seconds_channel_N</code></td><td>Time on channel N.</td></tr>
       <tr><td><code>seconds_subtitles_on/off</code></td><td>Time with subtitles on or off.</td></tr>
-      <tr><td><code>seconds_signer_on/off</code></td><td>Time on the signer channel (3) with the signer shown or hidden.</td></tr>
+      <tr><td><code>seconds_signer_on/off</code></td><td>Time on the signer channels (3–5) with the signer shown or hidden.</td></tr>
       <tr><td><code>seconds_view_…</code></td><td>Time in each view while the signer was shown: <code>floating_transparent</code> (Prosojno ozadje), <code>floating_grey</code> (Sivo ozadje), <code>split_overlapping</code> (Tolmač čez sliko), <code>split_side_by_side</code> (Tolmač ob sliki).</td></tr>
       <tr><td><code>seconds_position_…</code></td><td>Time at each place on screen (top-left … bottom-right), floating views only.</td></tr>
       <tr><td><code>seconds_signer_size_Npct</code></td><td>Time with the signer N % of the screen width wide, in any view.</td></tr>
     </table>
     <h2 style="margin-top: 18px">Events CSV — one row per thing that happened</h2>
-    <p class="muted">Each row has the time, <code>from</code> (<code>tv</code> = the DVB-I client, <code>signer_app</code> = the signer application on channel 3), the <code>action</code>, the <code>key</code> pressed if any, and every setting after it.</p>
+    <p class="muted">Each row has the time, <code>from</code> (<code>tv</code> = the DVB-I client, <code>signer_app</code> = the signer application on channels 3–5), the <code>action</code>, the <code>key</code> pressed if any, and every setting after it.</p>
     <table>
       <tr><td>By the participant</td><td><code>channel_changed</code>, <code>subtitles_on/off</code>, <code>signer_on/off</code>, <code>signer_smaller/larger</code>, <code>view_changed</code>, <code>signer_moved</code></td></tr>
       <tr><td>Pressed, nothing changed</td><td><code>size_limit_reached</code>, <code>move_limit_reached</code>, <code>move_not_possible_in_split_view</code>, <code>ok_pressed</code></td></tr>
-      <tr><td>By the TV itself</td><td><code>page_loaded</code>, <code>auto_tuned</code> (channel 1 after loading), <code>app_opened</code> (signer app started on channel 3), <code>still_watching</code> (every 30 s), <code>left_app</code> (HOME or another app), <code>returned_to_app</code>, <code>restart_received</code></td></tr>
+      <tr><td>By the TV itself</td><td><code>page_loaded</code>, <code>auto_tuned</code> (channel 1 after loading), <code>app_opened</code> (signer app started on channels 3–5), <code>still_watching</code> (every 30 s), <code>left_app</code> (HOME or another app), <code>returned_to_app</code>, <code>restart_received</code></td></tr>
     </table>
   </details>
 

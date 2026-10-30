@@ -113,7 +113,7 @@ if ($service_id !== '') {
 } else {
     // No ?service=: the original single-channel behaviour, kept so that existing
     // links and hand testing keep working.
-    $interpreter_url = $install_location . "/stream/live/combined/stream.mpd";
+    $interpreter_url = $install_location . "/stream/live/prenosniki/stream.mpd";
 }
 
 header("Content-Type: application/vnd.dvb.ait+xml;charset=utf-8");

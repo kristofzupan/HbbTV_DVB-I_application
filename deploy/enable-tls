@@ -143,10 +143,10 @@ bad()  { printf '  FAIL %s\n' "$1"; FAIL=1; }
 curl -sf --max-time 15 "https://$DOMAIN/frontend/android/player.html" >/dev/null \
   && ok "client reachable over HTTPS" || bad "client not reachable over HTTPS"
 
-curl -sf --max-time 15 "https://$DOMAIN/stream/live/combined/stream.mpd" >/dev/null \
+curl -sf --max-time 15 "https://$DOMAIN/stream/live/prenosniki/stream.mpd" >/dev/null \
   && ok "MPD reachable over HTTPS" || bad "MPD not reachable over HTTPS"
 
-curl -sf --max-time 15 "http://$DOMAIN:9080/stream/live/combined/stream.mpd" >/dev/null \
+curl -sf --max-time 15 "http://$DOMAIN:9080/stream/live/prenosniki/stream.mpd" >/dev/null \
   && ok "plain HTTP on 9080 still works (fallback for older terminals)" \
   || bad "plain HTTP on 9080 stopped working"
 

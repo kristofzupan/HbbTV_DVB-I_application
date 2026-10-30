@@ -36,6 +36,8 @@ public class MainActivity extends AppCompatActivity implements Observer {
     public static final String webviewCacheSubdir = "webviewAppCache";
     private static final String webviewDatabaseSubdir = "webviewDatabase";
 	private static final String TAG = MainActivity.class.getName();
+	// Linux KEY_TITLE, which the Philips remote sends for the TEXT button.
+	private static final int SCAN_CODE_TEXT = 369;
     public static final String INTENT_TARGET_URL = "targetUrl";
     public static final String EXTRA_WEBVIEW_WINDOW_OPEN = "MainActivity.Extra.WEBVIEW_WINDOW_OPEN";
     private static final int REQUEST_WEBFORM = 300;
@@ -511,6 +513,20 @@ public class MainActivity extends AppCompatActivity implements Observer {
                 if (event.getAction() == KeyEvent.ACTION_DOWN) {
                     runJavascript("javascript:document.dispatchEvent(new KeyboardEvent('keydown',{keyCode:'" + keyCode + "'}));\n");
                 }
+                return true;
+            } else if (event.getScanCode() == SCAN_CODE_TEXT) {
+                // The TEXT button (Linux KEY_TITLE) arrives with a vendor keycode the
+                // WebView does not know, so the page would see keyCode 0. Sent as
+                // VK_SUBTITLE instead, which remote.js maps to the subtitle toggle.
+                if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                    runJavascript("javascript:document.dispatchEvent(new KeyboardEvent('keydown',{keyCode:'460'}));\n");
+                }
+                return true;
+            } else if (keyCode == KeyEvent.KEYCODE_UNKNOWN) {
+                // The Philips remote emits an unmapped key (scan code 807) after three
+                // quick presses of a colour key. In the page it is indistinguishable
+                // from TEXT and toggled the subtitles, so unmapped keys are dropped.
+                Log.d(TAG, "dropped unmapped key, scan code " + event.getScanCode());
                 return true;
             } else {
                 super.dispatchKeyEvent(event);

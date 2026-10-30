@@ -30,7 +30,7 @@ def installLocation = {
 // interpreter-only, because on a terminal the main picture is the terminal's to
 // present. In this WebView there is no terminal, so the application falls back to
 // playing the interpreter stream itself — which is the point of this build.
-def overlayInitialUrl = "$installLocation/hbbtv-app/index.html?interpreter=$installLocation/stream/live/combined/stream.mpd"
+def overlayInitialUrl = "$installLocation/hbbtv-app/index.html?interpreter=$installLocation/stream/live/prenosniki/stream.mpd"
 
 def overlayAssetsDir = layout.buildDirectory.dir('generated/overlayAssets').get().asFile
 tasks.register('overlayAppConfig') {

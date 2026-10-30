@@ -32,7 +32,9 @@ sh ffmpeg_stream_commands/prerender
 sh ffmpeg_stream_commands/package-loop
 ```
 
-(prerender takes a few minutes, only needed once or when source video changes)
+(prerender takes about half an hour, most of it Film Bučko; only needed once or when source video changes. `sh ffmpeg_stream_commands/prerender napoved` rebuilds one channel: `tvmaribor`, `prenosniki`, `napoved`, `bucko`.)
+
+Its inputs are `video_content/rtv_mb.mp4` and `video_content/urejeno/{prenosniki,napoved,bucko}/{main,tolmac}.mp4`, made by the scripts in `video_content/urejeno`.
 
 `package-loop` also needs `video_content/source_normal.mp4`, the plain channel 1. It is built from a recording that is not in the repository, with `sh ffmpeg_stream_commands/prerender-normal` (about 10 minutes); on any other machine, copy the finished file into `video_content/`.
 
@@ -42,4 +44,4 @@ sh ffmpeg_stream_commands/package-loop
 sh deploy/update
 ```
 
-Pulls latest, re-applies the host's own address, rebuilds the stream if needed, restarts the publisher service. Copy `video_content/source_normal.mp4` to the host once beforehand; it cannot be rebuilt there.
+Pulls latest, re-applies the host's own address, rebuilds the stream if needed, restarts the publisher service. Copy `video_content/source_*.mp4` (all five) to the host beforehand; their inputs are not in the repository, so they are not rebuilt there.
