@@ -60,8 +60,18 @@ ED="$VC/urejeno"
 GOP="-g 100 -keyint_min 100 -sc_threshold 0"
 PRESET=${PRESET:-"-preset slow"}
 
-# The picture, on every channel.
+# The picture, on every channel but TV Maribor.
 MAIN_ENC="-profile:v:0 high -level:v:0 4.0 -b:v:0 3000k -maxrate:v:0 3300k -bufsize:v:0 6000k"
+
+# TV Maribor's picture. Its source arrives at 3.7 Mb/s, so at 3 Mb/s it was
+# being re-encoded at less than it came in at, and lost the most of any channel:
+# VMAF 93.9 against the source at 3 Mb/s, 97.6 at 5 Mb/s, on a 20 s sample
+# encoded with these settings. The other channels gain too little to be worth
+# the space — the test channels are 96.8 already from 9.5 Mb/s sources, and
+# Bučko is limited by its own 3.2 Mb/s delivery (93.8, and 95.6 at 5 Mb/s) —
+# and the long ones would not fit on the host at 5 Mb/s. This one costs about
+# 0.7 GB there, source and segments together.
+MAIN_ENC_5M="-profile:v:0 high -level:v:0 4.0 -b:v:0 5000k -maxrate:v:0 5500k -bufsize:v:0 10000k"
 
 # The signer track. It is not decoded by the television: an application
 # decodes it in JavaScript, through Broadway, so its cost is paid frame by frame
@@ -79,15 +89,16 @@ MAIN_ENC="-profile:v:0 high -level:v:0 4.0 -b:v:0 3000k -maxrate:v:0 3300k -bufs
 # all.
 SIGN_ENC="-profile:v:1 baseline -level:v:1 3.1 -b:v:1 800k -maxrate:v:1 900k -bufsize:v:1 1600k -refs:v:1 1"
 
-# encode NAME LOOP_SECONDS MAIN [SIGN] [MAIN_FILTER]
+# encode NAME LOOP_SECONDS MAIN [SIGN] [MAIN_FILTER] [MAIN_ENCODER]
 #
 # Writes video_content/source_NAME.mp4: picture, audio and, when SIGN is given,
 # the signer as a second video track — in that order, which package-loop relies
 # on to tell them apart. Every track is padded by holding its last frame, and
 # the audio with silence, then cut to exactly LOOP_SECONDS; on a source that is
-# already exact the padding is never reached.
+# already exact the padding is never reached. MAIN_ENCODER replaces MAIN_ENC for
+# the picture; SIGN and MAIN_FILTER may be given as "" to reach it.
 encode() {
-  _name=$1; _loop=$2; _main=$3; _sign=$4; _mf=$5
+  _name=$1; _loop=$2; _main=$3; _sign=$4; _mf=$5; _menc=${6:-$MAIN_ENC}
   _out="$VC/source_$_name.mp4"
 
   if [ $((_loop % 8)) -ne 0 ]; then
@@ -102,12 +113,12 @@ encode() {
   # source's own lip sync; on a source that starts at 0 it changes nothing.
   _fc="[0:v:0]${_mf}fps=25:start_time=0,tpad=stop_mode=clone:stop=-1[v]"
   _map="-map [v]"
-  _enc="$MAIN_ENC"
+  _enc="$_menc"
   _ai=1                                   # input index of the encoded audio
   if [ -n "$_sign" ]; then
     _fc="$_fc;[1:v:0]fps=25:start_time=0,tpad=stop_mode=clone:stop=-1[s]"
     _map="$_map -map [s]"
-    _enc="$MAIN_ENC $SIGN_ENC"
+    _enc="$_menc $SIGN_ENC"
     _ai=2
   fi
 
@@ -190,17 +201,21 @@ for ch in $ONLY; do
     # copied: the loop needs the same 4 s GOP, bitrate and exact length as
     # every other channel.
     tvmaribor)
-      encode tvmaribor 2568 "$VC/rtv_mb.mp4" ;;
+      encode tvmaribor 2568 "$VC/rtv_mb.mp4" "" "" "$MAIN_ENC_5M" ;;
     prenosniki)
       encode prenosniki 264 "$ED/prenosniki/main.mp4" "$ED/prenosniki/tolmac.mp4" ;;
     # The edit carries a silent audio track: the source has no sound.
     napoved)
       encode napoved 256 "$ED/napoved/main.mp4" "$ED/napoved/tolmac.mp4" ;;
-    # The film is 1998x1080 (DCI flat). Scaled to the full 1920 width and
-    # letterboxed with 21 px of black top and bottom, so none of it is cut.
+    # The film is delivered in a 1998x1080 (DCI flat) frame, but the picture in
+    # it is exactly 1920x1080: columns 39 to 1958, with 39 px of black either
+    # side (measured on column brightness across the film). Cropping to it gives
+    # a full-screen picture with nothing scaled and nothing of the image cut.
+    # Scaling the whole frame to 1920 wide instead, as this once did, kept the
+    # side bars and had to add bars top and bottom, framing the film in black.
     bucko)
       encode bucko 4968 "$ED/bucko/main.mp4" "$ED/bucko/tolmac.mp4" \
-             "scale=1920:1038,pad=1920:1080:0:21:black,setsar=1," ;;
+             "crop=1920:1080:39:0,setsar=1," ;;
     *) echo "Unknown channel: $ch (tvmaribor, prenosniki, napoved, bucko)" >&2; exit 2 ;;
   esac
 done

@@ -27,6 +27,40 @@ body.player {
   flex-direction: column;
 }
 
+/* The client's UI is sized in px, and was tuned on the Philips 55OLED706,
+   whose Android TV WebView lays out 960x540 CSS px. A Samsung Tizen UHD set
+   lays out 1920x1080, so the same UI came out at half the size. On wide
+   layouts the whole page is zoomed back to roughly that 960 px layout, which
+   scales everything at once — banner, channel list, EPG, dialogs, and the
+   linked application's frame, whose document then also sees about 960 px.
+   Only from 1600 px, so the Philips is untouched whatever its exact width.
+   Zoom also multiplies vh, so the 100vh above would be twice the screen; 100%
+   follows the zoom correctly. */
+@media (min-width: 1600px) {
+  html {
+    zoom: 1.6667;
+    height: 100%;
+  }
+  body.player {
+    height: 100%;
+  }
+}
+@media (min-width: 1920px) {
+  html {
+    zoom: 2;
+  }
+}
+@media (min-width: 2560px) {
+  html {
+    zoom: 2.6667;
+  }
+}
+@media (min-width: 3840px) {
+  html {
+    zoom: 4;
+  }
+}
+
 .icon-white {
   filter: invert(100%);
 }
@@ -80,8 +114,15 @@ body.player {
   width: 100%;
   height: 100%;
 }
+/* Above the linked application's frame (z-index 5, channel.js showLinkedApp),
+   below the EPG and dialogs (10 and up). The banner only shows when the viewer
+   asks for it — OK or a channel change — and for five seconds, and under the
+   frame the signer covered the very channel list it shows. Hidden is only
+   transparent, not removed, so while hidden it must let pointer input through
+   to the application underneath. */
 .video_wrapper .player-ui {
   position: absolute;
+  z-index: 6;
   top: 0;
   left: 0;
   width: 100%;
@@ -91,6 +132,9 @@ body.player {
   -webkit-transition: all 0.2s linear;
   -o-transition: all 0.2s linear;
   transition: all 0.2s linear;
+}
+.video_wrapper .player-ui.hide {
+  pointer-events: none;
 }
 .video_wrapper .player-ui .channels {
   background-image: url("../images/bg_chinfo.png");

@@ -967,6 +967,14 @@
       'terminal=' + yn(terminalPresentsMain) + ' interpOnly=' + yn(interpreterOnlyMode) +
       ' clock=' + clock + '\n' +
       'url=' + currentInterpreterUrl + '\n' +
+      // What the overlay's sizes are measured against. Televisions differ by a
+      // factor of two here at the same panel resolution — an Android TV WebView
+      // typically lays out 960 CSS px across where a Tizen browser lays out
+      // 1920 — so anything sized in px or rem comes out half as big on one.
+      'viewport=' + window.innerWidth + 'x' + window.innerHeight +
+      ' dpr=' + (window.devicePixelRatio || 1) +
+      ' screen=' + (window.screen ? screen.width + 'x' + screen.height : '-') +
+      ' rem=' + parseFloat(getComputedStyle(document.documentElement).fontSize) + 'px\n' +
       fpsLine + '\n' +
       (stats
         ? 'mpdFails=' + stats.mpdFails + '  decoded=' + stats.decoded +
@@ -995,7 +1003,9 @@
   var VK_0      = 48;
   var VK_ENTER  = 13;
   // Not part of any keyset mask — requested separately, and a terminal may
-  // refuse it, which is why OK toggles subtitles as well.
+  // refuse it, which is why OK toggles subtitles as well. Inside the DVB-I
+  // client OK never arrives here: the client keeps it to show its channel
+  // banner (frontend/android/js/remote.js), and TEXT reaches it there.
   var VK_SUBTITLE = HbbTV.VK_SUBTITLE;
 
   showHintBar();

@@ -229,6 +229,18 @@ function handleClientOwnedKey(key) {
     changeChannel(key == "channelUp" ? 1 : -1);
     return true;
   }
+  // OK brings up the same banner a channel change shows — the channel list and
+  // what is on — without changing anything, which is what a viewer pressing OK
+  // on a television expects to see. Taken from the application, which used OK
+  // as a second subtitle key for terminals that withheld VK_SUBTITLE; TEXT now
+  // reaches the client on every device this is tested on (MainActivity maps
+  // the Philips button to it), and the hint bar already names TEXT. An open
+  // dialog keeps OK: it is the dialog's only control.
+  if (key == "enter" && !modalIsOpen()) {
+    if (typeof resetHideTimeout == "function") resetHideTimeout();
+    logClientState("info_shown", null, "ok");
+    return true;
+  }
   if (key == "subtitle") {
     toggleSubtitleTrack();
     return true;
