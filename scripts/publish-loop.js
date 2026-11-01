@@ -58,6 +58,34 @@ const PRESENTATION_DELAY = 12;
 const loop = JSON.parse(fs.readFileSync(path.join(LOOP, 'loop.json'), 'utf8'));
 const SEG = loop.segmentSeconds;
 
+// ── Start from the beginning ─────────────────────────────────────────────────
+// The test channels are short programmes with a title card at the start, and a
+// viewer tuning in should see them from that title card rather than from
+// wherever the shared loop happens to be. The stream stays live and shared;
+// what changes is that each viewer starts behind the live edge, at the most
+// recent start of the loop, and stays that far behind.
+//
+// Two things make that possible. The manifest keeps a whole loop and a little
+// more available instead of the usual minute, so the start of the loop is
+// always still there to start from. And the publisher says where that start
+// is, in loop-start.json beside the manifest, because the client cannot work it
+// out alone: after a test reset the loop position depends on the reset time.
+// The client starts there when the file exists and at the live edge when it
+// does not, so no other channel is affected.
+//
+// The software-decoded signer needs nothing of its own: it presents frames
+// against the main picture's clock wherever that clock is in the manifest
+// window, which now reaches back a whole loop.
+const FROM_START = new Set(['prenosniki', 'napoved']);
+
+// Segments beyond one loop that the window keeps. The start a client is given
+// is at least PRESENTATION_DELAY behind live, so it can be up to a loop plus
+// that far back, and the client then plays at that distance from live for as
+// long as it stays on the channel. Ten segments covers both with room over.
+const FROM_START_SPARE = 10;
+
+const windowFor = (name, count) => (FROM_START.has(name) ? count + FROM_START_SPARE : WINDOW);
+
 const segmentNow = () => Math.floor((Date.now() - EPOCH_MS) / 1000 / SEG) + 1;
 
 // ── Test reset ───────────────────────────────────────────────────────────────
@@ -197,9 +225,14 @@ function publish(name, { segments: count, representations: reps }) {
   fs.mkdirSync(dir, { recursive: true });
 
   const latest = segmentNow();
-  const oldest = Math.max(1, latest - WINDOW + 1);
+  const win = windowFor(name, count);
+  const oldest = Math.max(1, latest - win + 1);
 
   const expected = new Set(['stream.mpd']);
+  if (FROM_START.has(name)) {
+    expected.add('loop-start.json');
+    writeLoopStart(dir, latest, oldest, count);
+  }
   for (const rep of reps) {
     // The init segment carries no timing, so it can stay a link.
     const init = `init-stream${rep.id}.m4s`;
@@ -238,12 +271,34 @@ function publish(name, { segments: count, representations: reps }) {
     try { fs.unlinkSync(path.join(dir, f)); } catch (e) { /* raced, or a directory */ }
   }
 
-  fs.writeFileSync(path.join(dir, 'stream.mpd.tmp'), manifest(reps, oldest, latest));
+  fs.writeFileSync(path.join(dir, 'stream.mpd.tmp'), manifest(reps, oldest, latest, win));
   fs.renameSync(path.join(dir, 'stream.mpd.tmp'), path.join(dir, 'stream.mpd'));
   return latest;
 }
 
-function manifest(reps, oldest, latest) {
+/**
+ * Write where the most recent start of the loop is that a client can still
+ * start from with PRESENTATION_DELAY of buffer ahead of it.
+ *
+ * Found by walking back from that point to the nearest segment at loop
+ * position 1, with the same loopPosition() the segments were written with, so
+ * it is right across a test reset as well. `start` is in seconds since the
+ * Unix epoch, which is what dash.js takes as a 'posix:' start time.
+ */
+function writeLoopStart(dir, latest, oldest, count) {
+  let n = latest - Math.ceil(PRESENTATION_DELAY / SEG);
+  while (n > oldest && loopPosition(n, count) !== 1) n--;
+  if (loopPosition(n, count) !== 1) return;     // too soon after the epoch to matter
+  const body = JSON.stringify({
+    start: (EPOCH_MS + (n - 1) * SEG * 1000) / 1000,
+    segment: n,
+    loopSeconds: count * SEG,
+  });
+  fs.writeFileSync(path.join(dir, 'loop-start.json.tmp'), body);
+  fs.renameSync(path.join(dir, 'loop-start.json.tmp'), path.join(dir, 'loop-start.json'));
+}
+
+function manifest(reps, oldest, latest, win) {
   const iso = (ms) => new Date(ms).toISOString().replace(/\.(\d{3})Z$/, '.$1Z');
   const count = latest - oldest + 1;
 
@@ -300,7 +355,7 @@ function manifest(reps, oldest, latest) {
      availabilityStartTime="${iso(EPOCH_MS)}"
      publishTime="${iso(Date.now())}"
      minimumUpdatePeriod="PT${SEG}S"
-     timeShiftBufferDepth="PT${WINDOW * SEG}S"
+     timeShiftBufferDepth="PT${win * SEG}S"
      suggestedPresentationDelay="PT${PRESENTATION_DELAY}S"
      maxSegmentDuration="PT${SEG}.0S"
      minBufferTime="PT${SEG * 2}.0S">

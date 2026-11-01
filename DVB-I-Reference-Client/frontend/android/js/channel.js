@@ -140,6 +140,7 @@ Channel.prototype.unselected = function () {
   }
   self.selected = false;
   self.element.classList.remove("active");
+  attachGeneration++;
   player.attachSource(null);
   // The application is bound to this service; it goes when the service does.
   hideLinkedApp();
@@ -343,8 +344,52 @@ function DASHjsVersion5(player) {
   return major >= 5;
 }
 
+// Bumped on every playDASH call, so a loop-start lookup that answers after the
+// viewer has already moved on does not attach the channel they left.
+var attachGeneration = 0;
+
+// Start a service at the most recent start of its programme loop, when the
+// publisher offers one, and at the live edge otherwise.
+//
+// The publisher writes loop-start.json beside the manifest only for the test
+// channels, whose programmes open with a title card and are meant to be seen
+// from it (scripts/publish-loop.js, FROM_START). The stream itself stays live:
+// the viewer starts behind the live edge, inside a manifest window that reaches
+// back far enough, and plays on at that distance. 'posix:' is dash.js's form
+// for a wall-clock start time on a live stream.
+//
+// Live catch-up is turned off for those channels: when it is on, dash.js seeks
+// to live as soon as latency passes its maximum drift, which would undo the
+// start position within seconds. It is only on for low-latency streams or when
+// enabled from the settings panel, but the second is a stored preference this
+// cannot see.
+function attachFromLoopStart(player, url) {
+  var generation = ++attachGeneration;
+  var attach = function (start) {
+    if (generation != attachGeneration) return;
+    player.updateSettings({ streaming: { liveCatchup: { enabled: start ? false : null } } });
+    if (start) {
+      console.log("Starting " + url + " at the start of its loop, " + Math.round(Date.now() / 1000 - start) + " s behind now");
+      player.attachSource(url, "posix:" + start);
+    } else {
+      player.attachSource(url);
+    }
+  };
+  fetch(url.substring(0, url.lastIndexOf("/") + 1) + "loop-start.json", { cache: "no-store" })
+    .then(function (r) {
+      return r.ok ? r.json() : null;
+    })
+    .then(function (info) {
+      attach(info && info.start ? info.start : null);
+    })
+    .catch(function () {
+      attach(null);
+    });
+}
+
 function playDASH(player, instance) {
   if (instance == null) {
+    attachGeneration++;
     player.updateSettings({ streaming: { cmcd: { enabled: false } } });
     player.attachSource(null);
     return;
@@ -365,7 +410,7 @@ function playDASH(player, instance) {
   } else {
     player.updateSettings({ streaming: { cmcd: { enabled: false } } });
   }
-  player.attachSource(instance.dashUrl);
+  attachFromLoopStart(player, instance.dashUrl);
 }
 
 Channel.prototype.channelSelected = function () {
