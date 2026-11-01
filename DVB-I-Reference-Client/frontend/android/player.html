@@ -3,7 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- The UI is designed for a 960x540 screen: that is what the Philips
+         55OLED706's Android TV WebView lays out, and where it was tuned. A
+         fixed width has every television lay the page out the same way and
+         scale it to its screen itself — Samsung's documented way for a Tizen
+         app (Managing Screen Resolution), which otherwise lays out 1920 and
+         showed everything at half the size. Android WebView ignores the tag
+         unless the app enables setUseWideViewPort, which MainActivity does not,
+         so the Philips is unchanged. Not CSS zoom: that scaled the page but not
+         the application's arithmetic, and broke the split views on a TV. -->
+    <meta name="viewport" content="width=960, user-scalable=no" />
     <meta name="theme-color" content="#0098f4" />
     <title>DVB-I RefApp</title>
 

@@ -2,6 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <!-- Laid out at 960 px wide and scaled to the screen by the television, as
+       the DVB-I client is (frontend/android/player.html explains why). Matters
+       where this page is loaded directly, as the Tizen app does via
+       wrapper.html; inside the client's frame a viewport tag has no effect, and
+       the client's own scaling covers it. -->
+  <meta name="viewport" content="width=960, user-scalable=no">
 <title>DVB-I Accessibility</title>
   <link rel="stylesheet" href="css/style.css">
   <script>
