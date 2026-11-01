@@ -16,26 +16,6 @@ html, body {
   color: #e8e8e8;
 }
 
-/* On wide layouts, everything sized in rem — the hint bar, the toast, the
-   error overlay — is sized against the width of the screen rather than a fixed
-   16 CSS px, so it takes the share of the picture it has on the Philips.
-   A fixed rem is not the same size everywhere because televisions do not agree
-   on how many CSS pixels a screen is. The Philips Android TV the layout was
-   tuned on lays out its UI at Android TV's usual density 2.0, 960x540 CSS px;
-   a Samsung Tizen UHD set lays out 1920x1080. The same 0.8rem hint bar came out
-   half the size on the Samsung.
-   Only above 1600 px, so the Philips is left exactly as it was tuned whatever
-   its real width — 960, or 1280 at density 1.5 — and nothing is staked on the
-   measurement being right. 1.6667vw is the Philips's 16px at 960 wide, scaled:
-   32px at 1920. Subtitles (3.2vw) and the signer (a share of innerWidth) were
-   already proportional. A desktop browser window this wide scales too, which
-   looks large at arm's length and is the right size from a sofa. */
-@media (min-width: 1600px) {
-  html {
-    font-size: 1.6667vw;
-  }
-}
-
 /* Overlay mode: the main picture is being presented by someone else — an HbbTV
    terminal, or a DVB-I client hosting this app in a frame — so the page must
    not paint a background over it. Applied by app.js once it knows it is not the

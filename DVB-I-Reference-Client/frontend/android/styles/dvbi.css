@@ -27,40 +27,6 @@ body.player {
   flex-direction: column;
 }
 
-/* The client's UI is sized in px, and was tuned on the Philips 55OLED706,
-   whose Android TV WebView lays out 960x540 CSS px. A Samsung Tizen UHD set
-   lays out 1920x1080, so the same UI came out at half the size. On wide
-   layouts the whole page is zoomed back to roughly that 960 px layout, which
-   scales everything at once — banner, channel list, EPG, dialogs, and the
-   linked application's frame, whose document then also sees about 960 px.
-   Only from 1600 px, so the Philips is untouched whatever its exact width.
-   Zoom also multiplies vh, so the 100vh above would be twice the screen; 100%
-   follows the zoom correctly. */
-@media (min-width: 1600px) {
-  html {
-    zoom: 1.6667;
-    height: 100%;
-  }
-  body.player {
-    height: 100%;
-  }
-}
-@media (min-width: 1920px) {
-  html {
-    zoom: 2;
-  }
-}
-@media (min-width: 2560px) {
-  html {
-    zoom: 2.6667;
-  }
-}
-@media (min-width: 3840px) {
-  html {
-    zoom: 4;
-  }
-}
-
 .icon-white {
   filter: invert(100%);
 }
