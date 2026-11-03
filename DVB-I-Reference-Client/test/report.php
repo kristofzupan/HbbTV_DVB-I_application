@@ -25,10 +25,10 @@ const APP_FIELDS = ['signer', 'view', 'position', 'signer_size_pct'];
 // Things the television did by itself, not the participant.
 const PASSIVE = ['page_loaded', 'auto_tuned', 'still_watching', 'left_app',
                  'restart_received', 'returned_to_app', 'app_opened'];
-// Presses that changed nothing: at an edge, at a size limit, or a key with no
-// job in the current view.
+// Presses that changed nothing: at an edge, at a size limit, a key with no
+// job in the current view, or a signer key while the signer is off.
 const NO_EFFECT = ['size_limit_reached', 'move_limit_reached',
-                   'move_not_possible_in_split_view', 'ok_pressed'];
+                   'move_not_possible_in_split_view', 'ignored_signer_off', 'ok_pressed'];
 // Which counter each action adds to.
 const COUNTED = [
     'channel_changed' => 'times_channel_changed',

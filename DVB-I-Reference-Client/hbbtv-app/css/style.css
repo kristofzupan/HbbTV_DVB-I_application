@@ -189,6 +189,11 @@ html.overlay-mode, body.overlay-mode {
 #hintBar .key-yellow { background: #f0c419; }
 #hintBar .key-blue   { background: #1f6fe0; }
 
+/* With the signer off only RED does anything to it, so only RED is offered. */
+#hintBar.signer-off #hintSignerKeys {
+  display: none;
+}
+
 /* Split views: always shown. */
 #hintBar.pinned,
 #hintBar.pinned.faded {

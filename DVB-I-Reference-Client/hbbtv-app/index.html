@@ -52,7 +52,7 @@
   <!-- Interpreter overlay: visible by default, top-right — the bottom of the
        screen is where subtitles are rendered. Must match posRow/posCol in
        app.js, which is what every later repositioning is applied from. -->
-  <div id="interpreterOverlay" class="interpreter-overlay interpreter-position-tr">
+  <div id="interpreterOverlay" class="interpreter-overlay interpreter-position-br">
     <video id="interpreterVideo" playsinline muted></video>
     <canvas id="interpreterCanvas" width="960" height="720"></canvas>
   </div>
@@ -73,7 +73,7 @@
   <!-- Persistent hint bar -->
   <!-- Colour keys as drawn squares, not emoji: a TV browser often has no emoji
        font and would show an empty box. Order follows the remote. -->
-  <div id="hintBar"><span class="key key-red"></span> = vklop/izklop &nbsp;|&nbsp; &#9664;&#9654;&#9650;&#9660; = premik &nbsp;|&nbsp; <span class="key key-green"></span> = pomanjšaj &nbsp;|&nbsp; <span class="key key-yellow"></span> = povečaj &nbsp;|&nbsp; <span class="key key-blue"></span> = pogled &nbsp;|&nbsp; TEXT = podnapisi</div>
+  <div id="hintBar"><span class="key key-red"></span> = vklop/izklop<span id="hintSignerKeys"> &nbsp;|&nbsp; &#9664;&#9654;&#9650;&#9660; = premik &nbsp;|&nbsp; <span class="key key-green"></span> = pomanjšaj &nbsp;|&nbsp; <span class="key key-yellow"></span> = povečaj &nbsp;|&nbsp; <span class="key key-blue"></span> = pogled</span> &nbsp;|&nbsp; TEXT = podnapisi</div>
 
   <!-- Error display -->
   <div id="errorOverlay"></div>

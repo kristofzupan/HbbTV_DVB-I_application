@@ -351,9 +351,9 @@ var attachGeneration = 0;
 // Start a service at the most recent start of its programme loop, when the
 // publisher offers one, and at the live edge otherwise.
 //
-// The publisher writes loop-start.json beside the manifest only for the test
-// channels, whose programmes open with a title card and are meant to be seen
-// from it (scripts/publish-loop.js, FROM_START). The stream itself stays live:
+// The publisher writes loop-start.json beside every manifest, with a start only
+// for the test channels, whose programmes open with a title card and are meant
+// to be seen from it (scripts/publish-loop.js, FROM_START). The stream itself stays live:
 // the viewer starts behind the live edge, inside a manifest window that reaches
 // back far enough, and plays on at that distance. 'posix:' is dash.js's form
 // for a wall-clock start time on a live stream.

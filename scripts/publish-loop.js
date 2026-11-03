@@ -70,8 +70,9 @@ const SEG = loop.segmentSeconds;
 // always still there to start from. And the publisher says where that start
 // is, in loop-start.json beside the manifest, because the client cannot work it
 // out alone: after a test reset the loop position depends on the reset time.
-// The client starts there when the file exists and at the live edge when it
-// does not, so no other channel is affected.
+// Every channel has the file, so the client's lookup never ends in a 404; for
+// the others it says start: null, and the client starts at the live edge, as
+// it does when the file is missing.
 //
 // The software-decoded signer needs nothing of its own: it presents frames
 // against the main picture's clock wherever that clock is in the manifest
@@ -228,11 +229,8 @@ function publish(name, { segments: count, representations: reps }) {
   const win = windowFor(name, count);
   const oldest = Math.max(1, latest - win + 1);
 
-  const expected = new Set(['stream.mpd']);
-  if (FROM_START.has(name)) {
-    expected.add('loop-start.json');
-    writeLoopStart(dir, latest, oldest, count);
-  }
+  const expected = new Set(['stream.mpd', 'loop-start.json']);
+  writeLoopStart(dir, FROM_START.has(name), latest, oldest, count);
   for (const rep of reps) {
     // The init segment carries no timing, so it can stay a link.
     const init = `init-stream${rep.id}.m4s`;
@@ -278,22 +276,27 @@ function publish(name, { segments: count, representations: reps }) {
 
 /**
  * Write where the most recent start of the loop is that a client can still
- * start from with PRESENTATION_DELAY of buffer ahead of it.
+ * start from with PRESENTATION_DELAY of buffer ahead of it, or start: null for
+ * a channel that is watched from the live edge.
  *
  * Found by walking back from that point to the nearest segment at loop
  * position 1, with the same loopPosition() the segments were written with, so
  * it is right across a test reset as well. `start` is in seconds since the
  * Unix epoch, which is what dash.js takes as a 'posix:' start time.
  */
-function writeLoopStart(dir, latest, oldest, count) {
+function writeLoopStart(dir, fromStart, latest, oldest, count) {
   let n = latest - Math.ceil(PRESENTATION_DELAY / SEG);
-  while (n > oldest && loopPosition(n, count) !== 1) n--;
-  if (loopPosition(n, count) !== 1) return;     // too soon after the epoch to matter
-  const body = JSON.stringify({
-    start: (EPOCH_MS + (n - 1) * SEG * 1000) / 1000,
-    segment: n,
-    loopSeconds: count * SEG,
-  });
+  if (fromStart) {
+    while (n > oldest && loopPosition(n, count) !== 1) n--;
+  }
+  // Too soon after the epoch to matter, if a test channel finds no start.
+  const body = fromStart && loopPosition(n, count) === 1
+    ? JSON.stringify({
+        start: (EPOCH_MS + (n - 1) * SEG * 1000) / 1000,
+        segment: n,
+        loopSeconds: count * SEG,
+      })
+    : JSON.stringify({ start: null });
   fs.writeFileSync(path.join(dir, 'loop-start.json.tmp'), body);
   fs.renameSync(path.join(dir, 'loop-start.json.tmp'), path.join(dir, 'loop-start.json'));
 }

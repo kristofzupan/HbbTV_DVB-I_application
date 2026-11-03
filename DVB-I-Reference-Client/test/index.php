@@ -231,7 +231,7 @@ $h = function ($s) {
     <p class="muted">Each row has the time, <code>from</code> (<code>tv</code> = the DVB-I client, <code>signer_app</code> = the signer application on channels 3–5), the <code>action</code>, the <code>key</code> pressed if any, and every setting after it.</p>
     <table>
       <tr><td>By the participant</td><td><code>channel_changed</code>, <code>subtitles_on/off</code>, <code>signer_on/off</code>, <code>signer_smaller/larger</code>, <code>view_changed</code>, <code>signer_moved</code></td></tr>
-      <tr><td>Pressed, nothing changed</td><td><code>size_limit_reached</code>, <code>move_limit_reached</code>, <code>move_not_possible_in_split_view</code>, <code>ok_pressed</code></td></tr>
+      <tr><td>Pressed, nothing changed</td><td><code>size_limit_reached</code>, <code>move_limit_reached</code>, <code>move_not_possible_in_split_view</code>, <code>ignored_signer_off</code>, <code>ok_pressed</code></td></tr>
       <tr><td>By the TV itself</td><td><code>page_loaded</code>, <code>auto_tuned</code> (channel 1 after loading), <code>app_opened</code> (signer app started on channels 3–5), <code>still_watching</code> (every 30 s), <code>left_app</code> (HOME or another app), <code>returned_to_app</code>, <code>restart_received</code></td></tr>
     </table>
   </details>

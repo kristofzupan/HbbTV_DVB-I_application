@@ -62,13 +62,12 @@
     ml: 'Sredina levo', mc: 'Sredina',         mr: 'Sredina desno',
     bl: 'Spodaj levo',  bc: 'Spodaj sredina',  br: 'Spodaj desno'
   };
-  // Top right by default. The bottom of the screen belongs to subtitles: they
-  // are authored in the conventional bottom region, a terminal renders them
-  // with no knowledge of this overlay, and nothing in DVB-I or HbbTV lets the
-  // two negotiate the space. The overlay is the part under our control, so it
-  // is the part that moves. The viewer can still put it anywhere.
-  var posRow = 0; // top
-  var posCol = 2; // right  (default: tr)
+  // Bottom right by default, where a signer is conventionally placed. On a
+  // channel with subtitles it can cover the end of a long line: a terminal
+  // renders them with no knowledge of this overlay, and nothing in DVB-I or
+  // HbbTV lets the two negotiate the space. The viewer can move it anywhere.
+  var posRow = 2; // bottom
+  var posCol = 2; // right  (default: br)
 
   // 7 size steps — widths only (vw); height computed from detected video ratio.
   // The largest is 50, not 55: the signer is square, and on a 16:9 screen 55vw
@@ -817,6 +816,8 @@
       stopInterpreterDecoder();
       showToast('Tolmač IZKLOPLJEN');
     }
+    var hint = document.getElementById('hintBar');
+    if (hint) { hint.classList.toggle('signer-off', !interpreterVisible); }
     if (isSplitLayout()) { applySplit(); }
   }
 
@@ -1008,11 +1009,22 @@
   // banner (frontend/android/js/remote.js), and TEXT reaches it there.
   var VK_SUBTITLE = HbbTV.VK_SUBTITLE;
 
+  // The keys that act on the signer: with it switched off they do nothing, or
+  // BLUE would shrink the picture into a split view beside no one.
+  var SIGNER_KEYS = [VK_GREEN, VK_GREEN2, VK_YELLOW, VK_YELLOW2, VK_BLUE, VK_BLUE2,
+                     VK_UP, VK_DOWN, VK_LEFT, VK_RIGHT];
+  function isSignerKey(key) { return SIGNER_KEYS.indexOf(key) >= 0; }
+
   showHintBar();
 
   document.addEventListener('keydown', function (e) {
     var key = e.keyCode || e.which;
     showHintBar();
+
+    if (!interpreterVisible && isSignerKey(key)) {
+      e.preventDefault();
+      return;
+    }
 
     // The split views fix the signer in the bottom-right corner.
     if (isSplitLayout() && (key === VK_UP || key === VK_DOWN || key === VK_LEFT || key === VK_RIGHT)) {
@@ -1148,11 +1160,13 @@
   // runs ahead of the handler above whatever the event's target.
   var testBefore = null;
   window.addEventListener('keydown', function () {
-    testBefore = { split: isSplitLayout(), size: sizeIdx, splitStep: splitIdx, row: posRow, col: posCol };
+    testBefore = { visible: interpreterVisible, split: isSplitLayout(), size: sizeIdx,
+                   splitStep: splitIdx, row: posRow, col: posCol };
   }, true);
 
   // What a key did, from the settings before and after it.
   function testAction(key, b) {
+    if (!b.visible && key !== 'red' && key !== 'ok') { return 'ignored_signer_off'; }
     var resized = b.split ? splitIdx !== b.splitStep : sizeIdx !== b.size;
     switch (key) {
       case 'red':    return interpreterVisible ? 'signer_on' : 'signer_off';
@@ -1500,8 +1514,10 @@
     return Promise.resolve('video-canvas');
   }
 
-  // Apply initial size (no CSS class — use inline style)
+  // Apply initial size (no CSS class — use inline style) and position, so the
+  // defaults at the top of this file are the only place either is set.
   applySize();
+  applyPosition(false);
 
   detectDecoderMode().then(function (mode) {
     decoderMode = mode;
