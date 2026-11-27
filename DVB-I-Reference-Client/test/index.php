@@ -1,14 +1,6 @@
 <?php
-/**
- * Control page for user tests: start the next participant's session (which
- * also restarts every stream and resets the television), and download the
- * session logs as CSV.
- */
 require __DIR__ . '/common.php';
 
-// Opened as /test rather than /test/, every relative link on this page —
-// reset.php, report.php — resolves against the parent directory and misses.
-// nginx adds the slash itself; PHP's development server does not.
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
 if ($path !== null && substr($path, -1) !== '/' && basename($path) !== 'index.php') {
     $query = $_SERVER['QUERY_STRING'] ?? '';
@@ -36,7 +28,6 @@ if (isset($_GET['logout'])) {
     exit;
 }
 
-/** Last event received in a session, read from the end of its log. */
 function last_event($id)
 {
     $file = session_file($id);
@@ -60,8 +51,6 @@ function count_events($id)
     return $n;
 }
 
-// Polled by this page, so you can see the television pick up a reset without
-// walking over to it.
 if (isset($_GET['status'])) {
     require_login();
     header('Content-Type: application/json');
@@ -208,7 +197,6 @@ $h = function ($s) {
     <?php endif; ?>
   </section>
 
-  <!-- Keep in step with report.php. -->
   <details class="card">
     <summary><strong>What the CSV columns mean</strong></summary>
     <h2 style="margin-top: 14px">Summary CSV — one row per participant and device</h2>

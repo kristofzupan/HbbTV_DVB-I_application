@@ -13,14 +13,6 @@
       <ttm:title>Subtitles</ttm:title>
     </metadata>
     <styling>
-      <!-- Two styles, and the split matters. A p is block level, so a
-           background on it paints the full width of the region whatever the
-           text is — a bar reaching almost across the picture with a few words
-           floating in the middle of it. Carrying the background on the span
-           instead paints only the text, which is what EBU-TT-D expects and what
-           broadcast subtitles look like: each line boxed to its own length.
-           ebutts:linePadding adds the half-character either side that stops the
-           first and last glyph touching the edge of that box. -->
       <style xml:id="para"
              tts:fontFamily="sansSerif"
              tts:fontSize="100%"
@@ -32,12 +24,6 @@
              ebutts:linePadding="0.5c"/>
     </styling>
     <layout>
-      <!-- The conventional EBU-TT-D bottom region: the title-safe area, with
-           displayAlign="after" pinning text to its bottom edge so multi-line
-           cues grow upwards. Subtitles land where viewers expect them and where
-           every other broadcaster puts them, which matters more than dodging
-           the sign-language overlay — that is kept clear by defaulting the
-           overlay to the top right instead. -->
       <region xml:id="bottom"
               tts:origin="10% 10%"
               tts:extent="80% 80%"

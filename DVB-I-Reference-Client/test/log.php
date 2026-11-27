@@ -1,14 +1,4 @@
 <?php
-/**
- * Receives what the television did: a JSON array of events, POSTed by
- * hbbtv-app/js/test-log.js. Each event is appended as one line to the log of
- * the session it names, with the server's receive time alongside the
- * television's own clock.
- *
- * Open, because the television cannot log in. It can only append to logs, and
- * a session it names must exist; anything else lands in the unassigned log
- * rather than creating files.
- */
 require __DIR__ . '/common.php';
 
 no_cache();
@@ -24,8 +14,6 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-// A batch is a few kilobytes; a television that was offline for a while sends
-// more, but nothing legitimate comes near this.
 $raw = file_get_contents('php://input', false, null, 0, 1024 * 1024);
 $events = json_decode($raw, true);
 if (!is_array($events)) {

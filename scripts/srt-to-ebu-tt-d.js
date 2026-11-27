@@ -1,40 +1,8 @@
 #!/usr/bin/env node
-/**
- * SubRip (.srt) to EBU-TT-D (EBU Tech 3380), the subtitle format DVB-DASH
- * requires (ETSI TS 103 285) and HbbTV terminals must support.
- *
- * ffmpeg cannot do this. Its `ttml` encoder emits generic TTML with no
- * ebutts: namespace, no urn:ebu:tt:distribution profile and an empty xml:lang,
- * which is not EBU-TT-D and would be signalled as such falsely.
- *
- * Usage:
- *   node scripts/srt-to-ebu-tt-d.js <in.srt> <out.xml> [--lang slv]
- *
- * Subtitles are authored in the conventional bottom position. A terminal
- * renders them with no knowledge of the application drawing over the same
- * picture, and neither DVB-I nor HbbTV lets the two negotiate, so the overlay
- * defaults to the top right instead — moving the thing this project controls
- * rather than the thing viewers have expectations about.
- */
 'use strict';
 
 const fs = require('fs');
 
-// EBU-TT-D expresses times against the media timeline as HH:MM:SS.mmm.
-// SubRip uses a comma for the decimal separator and is otherwise identical.
-// Hours are written in five digits — 00000:02:03.640 — where two would do.
-//
-// TTML's clock-time allows two or more hour digits, so this is well formed, and
-// nothing reading the document cares how wide the field is. What it buys is
-// that scripts/publish-loop.js can move a cue onto the live timeline by
-// overwriting the digits where they sit, without the string changing length.
-//
-// The alternative is that a time grows from 00:02:03.640 to 5709:21:00.140 as
-// it is offset, which lengthens the document inside the mdat, which changes the
-// sample sizes recorded in trun and the size of the mdat box around them. Three
-// things to keep in agreement, rewritten every four seconds, to save three
-// characters here. Five digits reach 99999 hours, which is eleven years past
-// the publisher's epoch.
 function srtTimeToTtml(t) {
   const m = /^(\d{2}):(\d{2}):(\d{2})[,.](\d{3})$/.exec(t.trim());
   if (!m) { throw new Error(`unparsable timecode: "${t}"`); }
@@ -51,8 +19,6 @@ function xmlEscape(s) {
 }
 
 function parseSrt(text) {
-  // Strip a UTF-8 BOM and normalise line endings before splitting on blank
-  // lines: a stray CR turns every timecode into an unparsable string.
   const clean = text.replace(/^﻿/, '').replace(/\r\n?/g, '\n');
   const cues = [];
 
@@ -60,14 +26,13 @@ function parseSrt(text) {
     const lines = block.split('\n').filter((l) => l.trim() !== '');
     if (lines.length === 0) { continue; }
 
-    // The numeric counter is optional in practice; skip it when present.
     let i = /^\d+$/.test(lines[0].trim()) ? 1 : 0;
     if (i >= lines.length) { continue; }
 
     const timing = /^(.+?)\s*-->\s*(.+?)$/.exec(lines[i]);
     if (!timing) { throw new Error(`no timecode line in block:\n${block}`); }
     const text_ = lines.slice(i + 1);
-    if (text_.length === 0) { continue; }   // timed but empty: nothing to show
+    if (text_.length === 0) { continue; }
 
     cues.push({
       begin: srtTimeToTtml(timing[1]),
@@ -85,8 +50,6 @@ function buildEbuTtD(cues, lang) {
            `<span style="text">${content}</span></p>`;
   }).join('\n');
 
-  // tts:extent on tt establishes the root container; EBU-TT-D expresses region
-  // geometry as percentages of it. cellResolution 32x15 is the EBU-TT-D default.
   return `<?xml version="1.0" encoding="UTF-8"?>
 <tt xmlns="http://www.w3.org/ns/ttml"
     xmlns:tts="http://www.w3.org/ns/ttml#styling"
@@ -102,14 +65,6 @@ function buildEbuTtD(cues, lang) {
       <ttm:title>Subtitles</ttm:title>
     </metadata>
     <styling>
-      <!-- Two styles, and the split matters. A p is block level, so a
-           background on it paints the full width of the region whatever the
-           text is — a bar reaching almost across the picture with a few words
-           floating in the middle of it. Carrying the background on the span
-           instead paints only the text, which is what EBU-TT-D expects and what
-           broadcast subtitles look like: each line boxed to its own length.
-           ebutts:linePadding adds the half-character either side that stops the
-           first and last glyph touching the edge of that box. -->
       <style xml:id="para"
              tts:fontFamily="sansSerif"
              tts:fontSize="100%"
@@ -121,12 +76,6 @@ function buildEbuTtD(cues, lang) {
              ebutts:linePadding="0.5c"/>
     </styling>
     <layout>
-      <!-- The conventional EBU-TT-D bottom region: the title-safe area, with
-           displayAlign="after" pinning text to its bottom edge so multi-line
-           cues grow upwards. Subtitles land where viewers expect them and where
-           every other broadcaster puts them, which matters more than dodging
-           the sign-language overlay — that is kept clear by defaulting the
-           overlay to the top right instead. -->
       <region xml:id="bottom"
               tts:origin="10% 10%"
               tts:extent="80% 80%"
@@ -162,9 +111,6 @@ function main() {
     process.exit(1);
   }
 
-  // Overlapping or reversed cues are legal TTML but almost always an authoring
-  // mistake, and they surface on a TV as subtitles that never clear. Report
-  // them rather than silently packaging them.
   let problems = 0;
   for (let i = 0; i < cues.length; i++) {
     if (toSeconds(cues[i].end) <= toSeconds(cues[i].begin)) {

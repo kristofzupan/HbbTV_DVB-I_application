@@ -1,50 +1,4 @@
 #!/bin/sh
-# Build the source for the plain channel, video_content/source_normal.mp4, from
-# the recording in video_content/normal.ts. Run once; nothing here runs at
-# serving time.
-#
-# Kept apart from ./prerender because its input exists only on the machine that
-# holds the recording, and because it encodes 71 minutes rather than four. A
-# deployment host is given the result, not asked to rebuild it.
-#
-# ── Where the cut is ──────────────────────────────────────────────────────────
-# Both ends sit in an advertising break, so the jump from the end of the loop
-# back to its start reads as one more cut between adverts:
-#
-#   first frame   437.1447 s  the last of five black frames before an advert
-#   last frame   4729.2247 s  the last frame of a dark slate, before the
-#                             programme returns
-#
-# Times are seconds from the start of the recording, as ffmpeg numbers them
-# after seeking. They were found from per-frame luma (signalstats YAVG: 16.0
-# black, 59.8 advert, 30.1 slate, 84.3 programme), not from a player's clock —
-# and the input is seeked to 430 s, well before the cut, on purpose. Seeking
-# straight to 437.12 lands between keyframes; the decoder drops everything up to
-# the next IDR, which is the advert's first frame, and the black frame silently
-# vanishes.
-#
-# ── Why 4296 s ────────────────────────────────────────────────────────────────
-# The cut is 4292.12 s, which is whole in video frames (107303) and nothing
-# else. The loop needs a length exact in all three units, for the reasons given
-# at length in ./prerender: 4 s segments, 25 fps frames and 1024-sample AAC
-# frames at 48 kHz, i.e. a multiple of 8 s. The last slate frame is held for 97
-# frames with silence underneath, giving
-#
-#   4296 s = 107400 video frames = 201375 AAC frames = 1074 segments of 4 s
-#
-# A held slate is the least visible place to put 3.88 s: it is already a still,
-# dark picture, and the cut points themselves stay where they were chosen.
-#
-# ── Picture ───────────────────────────────────────────────────────────────────
-# The recording is 1080i, top field first. bwdif in send_frame mode makes one
-# progressive frame per interlaced frame, 1080p25, matching the other channels.
-# Only the first audio track is kept, and no subtitles: this channel carries
-# none.
-#
-# Same video settings as ./prerender (High 4.0, 3 Mb/s, an IDR exactly every
-# 4 s) so package-loop can cut it with -c copy; -preset medium rather than slow
-# because this is seventeen times the length, and the difference at this bitrate
-# is not visible.
 set -e
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -52,17 +6,13 @@ IN="$ROOT/video_content/normal.ts"
 OUT="$ROOT/video_content/source_normal.mp4"
 
 SEEK=430
-CUT_START=437.144667      # first frame kept
-CUT_END=4729.264667       # first frame dropped
+CUT_START=437.144667
+CUT_END=4729.264667
 HOLD_FRAMES=97
 LOOP_SECONDS=4296
 
 [ -f "$IN" ] || { echo "Missing $IN" >&2; exit 1; }
 
-# Relative to SEEK, because that is the clock the filters see. The video trim
-# bounds sit between frames rather than on them, so a frame time that differs in
-# the last decimal from the number written here cannot be included or excluded
-# by accident; audio is cut on the exact instants.
 VSTART=$(echo "$CUT_START - $SEEK - 0.015" | bc)
 VEND=$(echo "$CUT_END - $SEEK - 0.015" | bc)
 ASTART=$(echo "$CUT_START - $SEEK" | bc)
@@ -71,8 +21,6 @@ AEND=$(echo "$CUT_END - $SEEK" | bc)
 GOP="-g 100 -keyint_min 100 -sc_threshold 0"
 PRESET=${PRESET:-"-preset medium"}
 
-# The recording opens mid-GOP, so the decoder complains about the first few
-# frames before the first keyframe. They are before the cut either way.
 echo "== Building $OUT ($LOOP_SECONDS s)"
 ffmpeg -y -loglevel warning -stats \
   -ss "$SEEK" -i "$IN" \

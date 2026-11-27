@@ -1,19 +1,4 @@
 <?php
-/**
- * Session logs as CSV.
- *
- *   report.php?type=events&session=<id>|all    every event, with the state after it
- *   report.php?type=summary&session=<id>|all   one row per session and device
- *
- * Two programs on the television report, each its own half of the state: the
- * DVB-I client ("tv": channel, subtitles) and, on the signer channel only, the
- * signer application ("signer_app": signer on/off, view, position, size). The
- * state used here is the two merged. The application's half is cleared whenever
- * the channel changes, because the client unloads it.
- *
- * What every column means is listed on the control page (index.php), under the
- * download links; keep the two in step.
- */
 require __DIR__ . '/common.php';
 
 require_login();
@@ -22,14 +7,10 @@ no_cache();
 const TV_FIELDS = ['channel', 'channel_name', 'subtitles'];
 const APP_FIELDS = ['signer', 'view', 'position', 'signer_size_pct'];
 
-// Things the television did by itself, not the participant.
 const PASSIVE = ['page_loaded', 'auto_tuned', 'still_watching', 'left_app',
                  'restart_received', 'returned_to_app', 'app_opened'];
-// Presses that changed nothing: at an edge, at a size limit, a key with no
-// job in the current view, or a signer key while the signer is off.
 const NO_EFFECT = ['size_limit_reached', 'move_limit_reached',
                    'move_not_possible_in_split_view', 'ignored_signer_off', 'ok_pressed'];
-// Which counter each action adds to.
 const COUNTED = [
     'channel_changed' => 'times_channel_changed',
     'subtitles_on' => 'times_subtitles_switched',
@@ -43,12 +24,8 @@ const COUNTED = [
 ];
 const COUNTERS = ['times_channel_changed', 'times_subtitles_switched', 'times_signer_switched',
                   'times_view_changed', 'times_moved', 'times_resized'];
-// Time is accounted per setting, in this column order.
 const DIMENSIONS = ['channel', 'subtitles', 'signer', 'view', 'position', 'signer_size'];
 
-// A heartbeat comes every 30 s. A longer silence means the television was off,
-// the client was in the background or the network was down; that time is not
-// counted as time spent in whatever state came before it.
 const MAX_INTERVAL_MS = 40000;
 
 $type = $_GET['type'] ?? 'events';
@@ -75,15 +52,12 @@ function load_events($id)
         if (is_array($e) && isset($e['t'])) $events[] = $e;
     }
     fclose($fh);
-    // Ordered by the television's clock, not by arrival: events are sent in
-    // batches, and a batch held back while the network was down arrives late.
     usort($events, function ($a, $b) {
         return $a['t'] <=> $b['t'];
     });
     return $events;
 }
 
-// The first version of the logging called the two sources client and app.
 function source_of($e)
 {
     $s = $e['source'] ?? '';
@@ -98,7 +72,6 @@ function fmt($v)
     return (string) $v;
 }
 
-/** Calls $each with every event and the merged state after it. */
 function replay($events, $each)
 {
     $st = array_fill_keys(array_merge(TV_FIELDS, APP_FIELDS), null);
@@ -121,11 +94,6 @@ function replay($events, $each)
     }
 }
 
-/**
- * The value a setting had, or null where it did not exist: no signer
- * application on this channel, the signer switched off (so it had no view,
- * place or size on screen), or a split view (which has no position).
- */
 function value_of($st, $dim)
 {
     switch ($dim) {
@@ -146,15 +114,11 @@ function value_of($st, $dim)
     return null;
 }
 
-// The escape argument spelled out: PHP 8.4 deprecates relying on its default,
-// and the notice would be printed into the CSV itself.
 function csv_row($out, $row)
 {
     fputcsv($out, $row, ',', '"', '');
 }
 
-// What kind of device it was, as it reported itself (test-session.js):
-// android_apk, samsung_tizen, lg_webos, hbbtv_tv or browser.
 function type_of($events)
 {
     foreach ($events as $e) {
@@ -174,7 +138,6 @@ $out = fopen('php://output', 'w');
 header('Content-Type: text/csv; charset=utf-8');
 $name = ($which === 'all' ? 'all-sessions' : $which) . '-' . $type . '.csv';
 header('Content-Disposition: attachment; filename="' . $name . '"');
-// Excel reads a UTF-8 file as the local code page unless it starts with a BOM.
 fwrite($out, "\xEF\xBB\xBF");
 
 if ($type === 'events') {
@@ -200,13 +163,8 @@ if ($type === 'events') {
     exit;
 }
 
-// ── Summary ──────────────────────────────────────────────────────────────────
-// One row per session and device. Every device records, so anything else that
-// was watching during a test — a laptop, someone looking online — gets a row of
-// its own beside the participant's television, never added into its numbers;
-// device_type tells the rows apart.
 $rows = [];
-$columns = []; // dimension => [value => true], so every row has the same columns
+$columns = [];
 foreach ($sessions as $s) {
     foreach (by_device(load_events($s['id'])) as $device => $events) {
         $r = [
@@ -214,7 +172,7 @@ foreach ($sessions as $s) {
             'presses' => 0, 'no_effect' => 0, 'first_press' => null,
             'counts' => array_fill_keys(COUNTERS, 0), 'final' => null,
         ];
-        $prev = null; // [t, state, action] of the previous event
+        $prev = null;
 
         replay($events, function ($e, $st) use (&$r, &$prev, &$columns, $s) {
             $action = $e['action'] ?? '';
@@ -227,7 +185,6 @@ foreach ($sessions as $s) {
 
             if ($prev !== null) {
                 list($pt, $pst, $paction) = $prev;
-                // Nothing was on screen between leaving the client and its reload.
                 $dt = $paction === 'left_app' ? 0 : min($e['t'] - $pt, MAX_INTERVAL_MS);
                 $r['watched'] += $dt;
                 foreach (DIMENSIONS as $d) {

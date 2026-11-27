@@ -142,7 +142,6 @@ Channel.prototype.unselected = function () {
   self.element.classList.remove("active");
   attachGeneration++;
   player.attachSource(null);
-  // The application is bound to this service; it goes when the service does.
   hideLinkedApp();
 };
 
@@ -169,15 +168,6 @@ Channel.prototype.getMediaPresentationApp = function (serviceInstance) {
   return null;
 };
 
-// ── Linked applications, type 1.1 ("app with media in parallel") ────────────
-//
-// The client previously handled only type 1.2, which takes over the screen.
-// Type 1.1 apps are meant to run *alongside* the client's own playback, which is
-// how DVB-I signals an accessibility overlay such as a sign-language interpreter
-// (see A177 clause 5.2.3 and TS 102 796 annex O, where these are equivalent to
-// ordinary broadcast-related applications). The client therefore keeps
-// presenting the service and hosts the application above its own video.
-
 Channel.prototype.getParallelApp = function (serviceInstance) {
   var self = this,
     lists = [serviceInstance && serviceInstance.parallelApps, self.parallelApps],
@@ -199,7 +189,6 @@ Channel.prototype.getParallelApp = function (serviceInstance) {
   return null;
 };
 
-// Namespace prefixes vary between AIT authors, so match on local name.
 function firstByLocalName(doc, name) {
   var all = doc.getElementsByTagName("*"),
     i;
@@ -209,8 +198,6 @@ function firstByLocalName(doc, name) {
   return null;
 }
 
-// An ait+xml MediaUri points at an XML AIT describing the application, not at
-// the application itself (A177 table 7). Resolve it to a launchable URL.
 function resolveLinkedAppUrl(app, callback) {
   if (app.contentType != AIT_MIME) {
     callback(app.url);
@@ -245,10 +232,6 @@ function showLinkedApp(url) {
   if (frame.getAttribute("src") != url) frame.setAttribute("src", url);
   frame.style.display = "block";
 
-  // Giving the application focus means keys stop arriving at this document, so
-  // the client has to re-assert the ones it owns inside the application's own.
-  // Bound on load because each load is a new document, and again right away for
-  // the case where the frame is only being re-shown and load will not fire.
   if (typeof bindRemoteToLinkedApp == "function") {
     frame.onload = function () {
       bindRemoteToLinkedApp(frame);
@@ -256,7 +239,6 @@ function showLinkedApp(url) {
     bindRemoteToLinkedApp(frame);
   }
 
-  // The application handles the colour keys itself, so give it the focus.
   try {
     frame.contentWindow.focus();
   } catch (e) {}
@@ -270,33 +252,10 @@ function hideLinkedApp() {
   }
 }
 
-// Seconds behind the live edge to hold playback.
-//
-// Two independent reasons arrive at the same number.
-//
-// An accessibility overlay decodes the signer in software from segments that
-// are already published, so it can only follow a picture that is not sitting on
-// the live edge. A few seconds of latency buys an overlay that can stay
-// aligned; without it the two can never meet. That is why this matches
-// LIVE_DELAY_SEC in the application.
-//
-// The encoder also does not publish on a metronome. Intervals between the
-// manifest's publishTime values were measured at 3.7 s to 5.5 s against a
-// nominal 4 s, with periodic 8 s gaps where two segments appear at once — the
-// host runs two live x264 encodes, so ffmpeg falls behind and catches up in
-// bursts. The manifest advertises suggestedPresentationDelay of one segment,
-// which leaves a client no headroom for a burst at all.
-//
-// The second reason applies to every service, not only to those carrying an
-// application, so the delay is no longer conditional on one being present:
-// holding it back only for the overlay left the plain live services stalling on
-// exactly the bursts the overlay was protected from.
 var LIVE_DELAY_SEC = 12;
 
 Channel.prototype.applyLiveDelay = function () {
   try {
-    // Nested under delay, not a flat streaming.liveDelay: dash.js v5 moved it
-    // there and warns on the old spelling for every service change.
     player.updateSettings({
       streaming: {
         delay: { liveDelay: LIVE_DELAY_SEC },
@@ -344,25 +303,8 @@ function DASHjsVersion5(player) {
   return major >= 5;
 }
 
-// Bumped on every playDASH call, so a loop-start lookup that answers after the
-// viewer has already moved on does not attach the channel they left.
 var attachGeneration = 0;
 
-// Start a service at the most recent start of its programme loop, when the
-// publisher offers one, and at the live edge otherwise.
-//
-// The publisher writes loop-start.json beside every manifest, with a start only
-// for the test channels, whose programmes open with a title card and are meant
-// to be seen from it (scripts/publish-loop.js, FROM_START). The stream itself stays live:
-// the viewer starts behind the live edge, inside a manifest window that reaches
-// back far enough, and plays on at that distance. 'posix:' is dash.js's form
-// for a wall-clock start time on a live stream.
-//
-// Live catch-up is turned off for those channels: when it is on, dash.js seeks
-// to live as soon as latency passes its maximum drift, which would undo the
-// start position within seconds. It is only on for low-latency streams or when
-// enabled from the settings panel, but the second is a stored preference this
-// cannot see.
 function attachFromLoopStart(player, url) {
   var generation = ++attachGeneration;
   var attach = function (start) {
@@ -446,12 +388,9 @@ Channel.prototype.channelSelected = function () {
     } else if (self.isProgramAllowed()) {
       $("#parentalpin").hide();
       if (self.serviceInstance) {
-        // Set before attaching the source, so the delay applies from the start.
         self.applyLiveDelay();
         playDASH(player, self.serviceInstance);
       }
-      // Started after playback, in parallel with it — the client keeps the
-      // picture and the application contributes only its overlay.
       self.startParallelApp();
     } else {
       playDASH(player, null);

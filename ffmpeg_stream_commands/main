@@ -1,7 +1,4 @@
 #!/bin/sh
-# Main picture only, as its own DASH stream.
-# Superseded by ffmpeg_stream_commands/combined for normal use; kept so the
-# original two-manifest arrangement stays reproducible for comparison.
 set -e
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)

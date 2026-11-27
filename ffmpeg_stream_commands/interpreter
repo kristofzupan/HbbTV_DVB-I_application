@@ -1,9 +1,4 @@
 #!/bin/sh
-# Interpreter only, as its own DASH stream.
-# Superseded by ffmpeg_stream_commands/combined for normal use; kept so the
-# original two-manifest arrangement stays reproducible for comparison. Started
-# separately from main/, it has its own availabilityStartTime and therefore no
-# shared timeline — which is the problem the combined encoder exists to remove.
 set -e
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)

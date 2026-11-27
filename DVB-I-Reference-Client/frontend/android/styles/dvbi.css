@@ -80,12 +80,6 @@ body.player {
   width: 100%;
   height: 100%;
 }
-/* Above the linked application's frame (z-index 5, channel.js showLinkedApp),
-   below the EPG and dialogs (10 and up). The banner only shows when the viewer
-   asks for it — OK or a channel change — and for five seconds, and under the
-   frame the signer covered the very channel list it shows. Hidden is only
-   transparent, not removed, so while hidden it must let pointer input through
-   to the application underneath. */
 .video_wrapper .player-ui {
   position: absolute;
   z-index: 6;

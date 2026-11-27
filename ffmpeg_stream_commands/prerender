@@ -1,114 +1,22 @@
 #!/bin/sh
-# Build the source files the loop is served from, one per channel. Run once,
-# whenever video_content changes. Nothing here runs at serving time.
-#
-# Channel 1 is not here: its source comes from a recording only one machine
-# holds, and is built by ./prerender-normal.
-#
-#   ch 2  TV Maribor                    tvmaribor   signer burnt in by the broadcaster
-#   ch 3  Prenosniki - testni kanal 1   prenosniki  signer as its own track, subtitles
-#   ch 4  Napoved - testni kanal 2      napoved     signer as its own track
-#   ch 5  Film Bučko                    bucko       signer as its own track
-#
-# The programme is a fixed loop, so every frame that will ever be sent is known
-# in advance. Encoding it live — several channels over, forever — is what made
-# the host run out of CPU: the encoder logged speed=0.999x with duplicated
-# frames and published segments in bursts, which stalled playback. Encoding
-# once, offline, removes the constraint entirely and lets every channel use the
-# same slow preset, so they are comparable to each other as well as cheaper to
-# serve.
-#
-# ── Loop lengths ──────────────────────────────────────────────────────────────
-# Every loop is a whole multiple of 8 s, because that is the shortest length
-# exact in all three units the stream is divided into:
-#
-#   4 s segments, 25 fps video frames, and 1024-sample AAC frames at 48 kHz
-#   (8 s = 200 video frames = 375 AAC frames = 2 segments)
-#
-# A loop that is not exact in all three restarts with something left over, and
-# the leftover accumulates: 249.8 s of video against 249.856 s of audio is
-# where the old subtitle drift came from — 56 ms per loop, 94 seconds after
-# five days. With an exact length the loop restarts on a segment boundary with
-# video, audio and subtitles all at zero together, and there is nothing left
-# over to accumulate.
-#
-#   prenosniki   264 s   as edited (video_content/urejeno/build.py)
-#   napoved      256 s   as edited (video_content/urejeno/build.py)
-#   tvmaribor   2568 s   source is 2563.80 s; last frame held, with silence
-#   bucko       4968 s   source is 4964.96 s; last frame held, with silence
-#
-# Holding the last frame rather than cutting keeps the whole programme. Both
-# programmes have ended by then — Bučko on a fade to black — so the hold reads
-# as a pause before the loop starts over, not as a freeze.
 set -e
-# The stream maps below ([v], [a], [s]) are passed unquoted so they split into
-# separate arguments; without -f the shell would also try them as globs.
 set -f
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 VC="$ROOT/video_content"
 ED="$VC/urejeno"
 
-# -g 100 with -keyint_min 100 and -sc_threshold 0 puts an IDR exactly every 4 s
-# and nowhere else, which is what lets the packager cut segments on keyframes
-# without re-encoding, and what lets the loop restart on a segment boundary.
-#
-# -preset slow because this runs once and nothing is waiting for it. The live
-# encoders had to use veryfast and ultrafast to keep up; at the same bitrate
-# this is better than either, and identical across every channel. PRESET is
-# overridable for trial runs, since Bučko alone is 83 minutes of 1080p.
 GOP="-g 100 -keyint_min 100 -sc_threshold 0"
 PRESET=${PRESET:-"-preset slow"}
 
-# The picture, on every channel but TV Maribor.
 MAIN_ENC="-profile:v:0 high -level:v:0 4.0 -b:v:0 3000k -maxrate:v:0 3300k -bufsize:v:0 6000k"
 
-# TV Maribor's picture. Its source arrives at 3.7 Mb/s, so at 3 Mb/s it was
-# being re-encoded at less than it came in at, and lost the most of any channel:
-# VMAF 93.9 against the source at 3 Mb/s, 97.6 at 5 Mb/s, on a 20 s sample
-# encoded with these settings. The other channels gain too little to be worth
-# the space — the test channels are 96.8 already from 9.5 Mb/s sources, and
-# Bučko is limited by its own 3.2 Mb/s delivery (93.8, and 95.6 at 5 Mb/s) —
-# and the long ones would not fit on the host at 5 Mb/s. This one costs about
-# 0.7 GB there, source and segments together.
 MAIN_ENC_5M="-profile:v:0 high -level:v:0 4.0 -b:v:0 5000k -maxrate:v:0 5500k -bufsize:v:0 10000k"
 
-# Bučko's sound. The film is mixed for a cinema: -31.4 LUFS integrated with a
-# 17 LU loudness range, against -22 to -23 on the plain channel and the test
-# channels (EBU R128's -23), so it played 8 to 9 dB quieter than them. Raised
-# to -23 by gain alone, which keeps the mix's range, with a limiter catching
-# only what the gain pushes over -1.5 dB: its peaks are at -4.3 dBTP, so a
-# loudness normaliser in dynamic mode would have compressed the whole film to
-# get there. Measured on the full film: the limiter works more than 1 dB for
-# about 4% of the running time, more than 3 dB for under 1%, and the loudness
-# range stays 17 LU.
 BUCKO_AUDIO="volume=8.8dB,alimiter=limit=-1.5dB:attack=5:release=50:level=disabled:asc=1,"
 
-# The signer track. It is not decoded by the television: an application
-# decodes it in JavaScript, through Broadway, so its cost is paid frame by frame
-# in a software decoder rather than in silicon. Baseline because Broadway
-# decodes no other profile, and -refs:v:1 1 because -preset slow raises x264's
-# reference frames from 1 to 5, which the hardware decoder handling the picture
-# does not notice and Broadway very much does — it stuttered every few seconds
-# until this was pinned back.
-#
-# The signer files in video_content/urejeno are already 480x480 with the
-# studio green replaced by one flat colour, 0x00b140 (build.py, bucko.py), so
-# they are only re-encoded here, not keyed again. That colour is what the
-# application's shader keys on; it encodes as Y 129, U 96, V 55 (limited-range
-# BT.709) and the shader holds those U/V values. Change both together or not at
-# all.
 SIGN_ENC="-profile:v:1 baseline -level:v:1 3.1 -b:v:1 800k -maxrate:v:1 900k -bufsize:v:1 1600k -refs:v:1 1"
 
-# encode NAME LOOP_SECONDS MAIN [SIGN] [MAIN_FILTER] [MAIN_ENCODER] [AUDIO_FILTER]
-#
-# Writes video_content/source_NAME.mp4: picture, audio and, when SIGN is given,
-# the signer as a second video track — in that order, which package-loop relies
-# on to tell them apart. Every track is padded by holding its last frame, and
-# the audio with silence, then cut to exactly LOOP_SECONDS; on a source that is
-# already exact the padding is never reached. MAIN_ENCODER replaces MAIN_ENC for
-# the picture; AUDIO_FILTER, ending in a comma, goes before the padding. Earlier
-# arguments may be given as "" to reach the later ones.
 encode() {
   _name=$1; _loop=$2; _main=$3; _sign=$4; _mf=$5; _menc=${6:-$MAIN_ENC}; _af=$7
   _out="$VC/source_$_name.mp4"
@@ -119,14 +27,10 @@ encode() {
   [ -f "$_main" ] || { echo "Missing $_main" >&2; exit 1; }
   [ -z "$_sign" ] || [ -f "$_sign" ] || { echo "Missing $_sign" >&2; exit 1; }
 
-  # fps=25:start_time=0 because rtv_mb.mp4 starts its picture one frame after
-  # its sound (video at 0.04 s, audio at 0), which left the output one frame
-  # short of the loop. Repeating the first frame at 0 fills it and keeps the
-  # source's own lip sync; on a source that starts at 0 it changes nothing.
   _fc="[0:v:0]${_mf}fps=25:start_time=0,tpad=stop_mode=clone:stop=-1[v]"
   _map="-map [v]"
   _enc="$_menc"
-  _ai=1                                   # input index of the encoded audio
+  _ai=1
   if [ -n "$_sign" ]; then
     _fc="$_fc;[1:v:0]fps=25:start_time=0,tpad=stop_mode=clone:stop=-1[s]"
     _map="$_map -map [s]"
@@ -134,13 +38,6 @@ encode() {
     _ai=2
   fi
 
-  # The sound is encoded in a pass of its own and copied in. In one graph with
-  # the picture and the signer, the 83-minute Bučko came out with its sound
-  # stopping partway — at 1103 s on one run, 991 s on another, the rest filled
-  # by apad with silence — while every frame count still came out exact. The
-  # point moved with the encoding speed, so it is ffmpeg's scheduling of a long
-  # two-input graph, not the content: the same audio filter on its own is
-  # correct every time. Kept apart, nothing is waiting on anything.
   _aud=$(mktemp "${TMPDIR:-/tmp}/prerender-audio.XXXXXX")
   echo "== Building $_out ($_loop s${_sign:+, with signer track})"
   ffmpeg -y -loglevel warning \
@@ -159,8 +56,6 @@ encode() {
   verify_sound "$_main" "$_out" "$_loop"
 }
 
-# A length that is off by even one frame breaks the property the whole design
-# rests on, and it would not be visible until the cues had drifted for a day.
 verify() {
   _f=$1; _loop=$2; _signed=$3
   _wv=$((_loop * 25)); _wa=$((_loop * 48000 / 1024))
@@ -183,9 +78,6 @@ verify() {
   [ "$_ok" = yes ] || { echo "    FAIL: frame count" >&2; exit 1; }
 }
 
-# Frame counts cannot see sound that has gone silent: apad fills the gap with
-# frames, so the count is exact either way. Compare how much of the result is
-# silent with how much of the source was, allowing for the padding at the end.
 silence() {
   ffmpeg -v info -i "$1" -map 0:a:0 -af silencedetect=n=-50dB:d=2 -f null - 2>&1 |
     awk '/silence_duration/ { s += $NF } END { printf "%.2f", s + 0 }'
@@ -201,30 +93,16 @@ verify_sound() {
     { echo "    FAIL: more silence than the source has" >&2; exit 1; }
 }
 
-# Only the channels named on the command line, or all of them. Bučko takes far
-# longer than the rest together, so rebuilding one channel should not cost it.
 ONLY=${*:-"tvmaribor prenosniki napoved bucko"}
 
 for ch in $ONLY; do
   case "$ch" in
-    # The broadcaster's own programme with the signer already in the picture,
-    # as delivered. Its layout is theirs, not the application's default, which
-    # is the point — it is what a viewer gets today. Re-encoded rather than
-    # copied: the loop needs the same 4 s GOP, bitrate and exact length as
-    # every other channel.
     tvmaribor)
       encode tvmaribor 2568 "$VC/rtv_mb.mp4" "" "" "$MAIN_ENC_5M" ;;
     prenosniki)
       encode prenosniki 264 "$ED/prenosniki/main.mp4" "$ED/prenosniki/tolmac.mp4" ;;
-    # The edit carries a silent audio track: the source has no sound.
     napoved)
       encode napoved 256 "$ED/napoved/main.mp4" "$ED/napoved/tolmac.mp4" ;;
-    # The film is delivered in a 1998x1080 (DCI flat) frame, but the picture in
-    # it is exactly 1920x1080: columns 39 to 1958, with 39 px of black either
-    # side (measured on column brightness across the film). Cropping to it gives
-    # a full-screen picture with nothing scaled and nothing of the image cut.
-    # Scaling the whole frame to 1920 wide instead, as this once did, kept the
-    # side bars and had to add bars top and bottom, framing the film in black.
     bucko)
       encode bucko 4968 "$ED/bucko/main.mp4" "$ED/bucko/tolmac.mp4" \
              "crop=1920:1080:39:0,setsar=1," "" "$BUCKO_AUDIO" ;;

@@ -12,9 +12,6 @@ tasks.register('copyFiles', Copy) {
     include 'frontend/android/**'
 }
 
-// The overlay flavour's start URL is derived from the same BASE_URL the server
-// reads, not written down a second time, so the APK cannot come to disagree
-// with the service list about where the deployment lives.
 def installLocation = {
     def fromEnv = System.getenv('BASE_URL')
     if (fromEnv) return fromEnv
@@ -26,10 +23,6 @@ def installLocation = {
     return 'http://localhost:9080'
 }().replaceAll('/$', '')
 
-// Identical to the applicationLocation the XML AIT advertises (hbbtv-app/aitx.php):
-// interpreter-only, because on a terminal the main picture is the terminal's to
-// present. In this WebView there is no terminal, so the application falls back to
-// playing the interpreter stream itself — which is the point of this build.
 def overlayInitialUrl = "$installLocation/hbbtv-app/index.html?interpreter=$installLocation/stream/live/prenosniki/stream.mpd"
 
 def overlayAssetsDir = layout.buildDirectory.dir('generated/overlayAssets').get().asFile
@@ -77,10 +70,6 @@ android {
         normal {
             dimension "webview"
         }
-        // Same WebView shell, started on the HbbTV interpreter application
-        // instead of the DVB-I client. Installs alongside the reference client
-        // rather than replacing it, so the AIT launch path and the standalone
-        // overlay can be compared on one television.
         overlay {
             dimension "webview"
             applicationIdSuffix ".overlay"
@@ -89,8 +78,6 @@ android {
     }
 
     sourceSets {
-        // The webview implementation lives in the normal flavour; the overlay
-        // build differs only in which URL it opens.
         overlay {
             java.srcDirs += 'src/normal/java'
             assets.srcDirs += overlayAssetsDir
