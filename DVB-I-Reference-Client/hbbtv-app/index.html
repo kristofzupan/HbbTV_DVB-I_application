@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=960, user-scalable=no">
+<title>DVB-I Accessibility</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script>
+    window.onerror = function (msg, src, line) {
+      var el = document.getElementById('dvbi-boot-status');
+      if (el) {
+        el.style.background = '#8b0000';
+        el.style.display = 'block';
+        el.innerHTML = '<b>Error:</b> ' + msg + ' (' + (src || '?').replace(/.*\//, '') + ':' + line + ')';
+      }
+      return false;
+    };
+  </script>
+</head>
+<body>
+  <div id="dvbi-boot-status">Nalaganje aplikacije za dostopnost DVB-I ...</div>
+
+  <object id="appManager" type="application/oipfApplicationManager"
+          style="position:absolute;left:0;top:0;width:0;height:0;visibility:hidden"></object>
+  <object id="broadcastVideo" type="video/broadcast"
+          style="position:absolute;left:0;top:0;width:0;height:0;visibility:hidden"></object>
+
+  <video id="mainVideo" playsinline muted></video>
+
+  <div id="interpreterOverlay" class="interpreter-overlay interpreter-position-br">
+    <video id="interpreterVideo" playsinline muted></video>
+    <canvas id="interpreterCanvas" width="960" height="720"></canvas>
+  </div>
+
+  <div id="subtitles"></div>
+
+  <div id="greyRight" class="grey-frame"></div>
+  <div id="greyBottom" class="grey-frame"></div>
+
+  <div id="toast"></div>
+
+  <div id="hintBar"><span class="key key-red"></span> = vklop/izklop<span id="hintSignerKeys"> &nbsp;|&nbsp; &#9664;&#9654;&#9650;&#9660; = premik &nbsp;|&nbsp; <span class="key key-green"></span> = pomanjšaj &nbsp;|&nbsp; <span class="key key-yellow"></span> = povečaj &nbsp;|&nbsp; <span class="key key-blue"></span> = pogled</span> &nbsp;|&nbsp; TEXT = podnapisi</div>
+
+  <div id="errorOverlay"></div>
+
+  <script src="js/hbbtv-bridge.js"></script>
+  <script src="js/dash.all.min.js"></script>
+  <script src="js/broadway-decoder.js"></script>
+  <script src="js/broadway-yuvcanvas.js"></script>
+  <script src="js/broadway-player-lib.js"></script>
+  <script src="js/wasm-decoder.js"></script>
+  <script src="js/webcodecs-decoder.js"></script>
+  <script src="js/test-session.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

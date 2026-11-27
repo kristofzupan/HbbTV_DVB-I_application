@@ -1,0 +1,7 @@
+.DS_Store
+.env
+DVB-I-Reference-Client/stream/
+video_content/
+*.mp4
+latex_mag
+test-data/

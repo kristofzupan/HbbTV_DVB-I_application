@@ -1,0 +1,142 @@
+#!/bin/sh
+set -e
+
+DOMAIN=dvb-i.lmmfe.org
+WEBROOT=/var/www/certbot
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+cd "$ROOT"
+
+STAGING=""
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) STAGING="--dry-run" ;;
+    *) echo "Unknown option: $arg" >&2; exit 2 ;;
+  esac
+done
+
+if [ "$(id -u)" = "0" ]; then
+  echo "Run as the repository owner, not root — the script sudos where it needs to." >&2
+  exit 1
+fi
+
+say() { printf '\n\033[1m== %s\033[0m\n' "$1"; }
+die() { printf '\n\033[1mSTOP\033[0m %s\n' "$1" >&2; exit 1; }
+
+EMAIL=${CERTBOT_EMAIL:-$(git config user.email || true)}
+[ -n "$EMAIL" ] || die "No contact address. Set one: CERTBOT_EMAIL=you@example.org sh deploy/enable-tls
+Let's Encrypt uses it only to warn you when a renewal has failed and the
+certificate is about to expire — worth having."
+
+sudo -v
+
+say "Checking DNS"
+RESOLVED=$(getent hosts "$DOMAIN" | awk '{print $1}' | head -1)
+PUBLIC=$(curl -sf --max-time 10 https://ifconfig.me || true)
+echo "  $DOMAIN resolves to ${RESOLVED:-nothing}"
+echo "  this host's public address is ${PUBLIC:-unknown}"
+[ -n "$RESOLVED" ] || die "$DOMAIN does not resolve. The A record has to exist before a
+certificate can be issued for it."
+if [ -n "$PUBLIC" ] && [ "$RESOLVED" != "$PUBLIC" ]; then
+  die "$DOMAIN points at $RESOLVED but this host is $PUBLIC. Validation would be
+answered by the wrong machine."
+fi
+
+say "Installing nginx configuration"
+sudo mkdir -p "$WEBROOT/.well-known/acme-challenge"
+sudo cp deploy/dvbi-locations.conf /etc/nginx/snippets/dvbi-locations.conf
+sudo cp deploy/nginx-dvbi.conf /etc/nginx/sites-available/dvbi
+sudo ln -sf /etc/nginx/sites-available/dvbi /etc/nginx/sites-enabled/dvbi
+sudo nginx -t
+sudo systemctl reload nginx
+
+say "Checking that port 80 is reachable from the internet"
+TOKEN="preflight-$(date +%s)"
+echo "$TOKEN" | sudo tee "$WEBROOT/.well-known/acme-challenge/$TOKEN" >/dev/null
+
+GOT=$(curl -sf --max-time 15 "http://$DOMAIN/.well-known/acme-challenge/$TOKEN" || true)
+sudo rm -f "$WEBROOT/.well-known/acme-challenge/$TOKEN"
+
+if [ "$GOT" != "$TOKEN" ]; then
+  printf '  not reachable\n'
+  if sudo ufw status 2>/dev/null | grep -q "Status: active"; then
+    printf '\n  ufw is active on this host. Its rules:\n'
+    sudo ufw status | sed 's/^/    /'
+    printf '\n  If 80 and 443 are not allowed, this one is yours to fix:\n'
+    printf '    sudo ufw allow 80,443/tcp\n'
+  fi
+  die "The ACME challenge path is not reachable over port 80, so no certificate can
+be issued. If ufw is not the cause, the block is upstream and the administrator
+needs to:
+
+  1. open inbound TCP 80 and 443 to $PUBLIC
+  2. keep 80 open permanently — Let's Encrypt revalidates on every renewal,
+     roughly every 60 days. A one-time hole yields a certificate that expires
+     silently in three months.
+
+Re-run this script once that is done. Nothing here has been left half-applied:
+the site is still served on 9080 exactly as before."
+fi
+echo "  reachable"
+
+say "Obtaining certificate"
+command -v certbot >/dev/null 2>&1 || sudo apt-get install -y certbot
+
+sudo certbot certonly --webroot -w "$WEBROOT" -d "$DOMAIN" \
+  --cert-name "$DOMAIN" --key-type rsa \
+  --agree-tos -m "$EMAIL" --non-interactive $STAGING
+
+if [ -n "$STAGING" ]; then
+  say "Dry run finished"
+  echo "Validation works. Re-run without --dry-run to issue the real certificate."
+  exit 0
+fi
+
+say "Enabling HTTPS"
+sudo cp deploy/nginx-dvbi-tls.conf /etc/nginx/sites-available/dvbi-tls
+sudo ln -sf /etc/nginx/sites-available/dvbi-tls /etc/nginx/sites-enabled/dvbi-tls
+sudo nginx -t
+sudo systemctl reload nginx
+
+say "Verifying"
+FAIL=0
+ok()   { printf '  ok   %s\n' "$1"; }
+bad()  { printf '  FAIL %s\n' "$1"; FAIL=1; }
+
+curl -sf --max-time 15 "https://$DOMAIN/frontend/android/player.html" >/dev/null \
+  && ok "client reachable over HTTPS" || bad "client not reachable over HTTPS"
+
+curl -sf --max-time 15 "https://$DOMAIN/stream/live/prenosniki/stream.mpd" >/dev/null \
+  && ok "MPD reachable over HTTPS" || bad "MPD not reachable over HTTPS"
+
+curl -sf --max-time 15 "http://$DOMAIN:9080/stream/live/prenosniki/stream.mpd" >/dev/null \
+  && ok "plain HTTP on 9080 still works (fallback for older terminals)" \
+  || bad "plain HTTP on 9080 stopped working"
+
+EXPIRY=$(sudo openssl x509 -enddate -noout \
+         -in "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" 2>/dev/null | cut -d= -f2)
+[ -n "$EXPIRY" ] && ok "certificate valid until $EXPIRY" || bad "no certificate found"
+
+systemctl list-timers 2>/dev/null | grep -q certbot \
+  && ok "renewal timer active" \
+  || printf '  note renewal timer not found — check: systemctl status certbot.timer\n'
+
+say "Next"
+cat <<'EOF'
+HTTPS is served, but the service still advertises its old address. Switch it only
+once you have loaded the client over HTTPS and seen the interpreter play, because
+every URL moves together:
+
+  1. edit .env      BASE_URL=https://dvb-i.lmmfe.org
+                    (PORT is only the port php -S would bind and does not appear
+                    in any generated URL once BASE_URL is set; leave it alone)
+  2. sh deploy/update
+  3. reload the client and check the console for mixed-content errors — one
+     http:// sub-resource on an https:// page is blocked outright, and it
+     presents as "the video will not start" with nothing else to go on
+  4. rebuild the APK: appConfig.json bakes the URL in at build time
+
+To go back, set BASE_URL to http://212.101.137.83:9080 and run deploy/update.
+EOF
+
+exit $FAIL

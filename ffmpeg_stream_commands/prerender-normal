@@ -1,0 +1,49 @@
+#!/bin/sh
+set -e
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+IN="$ROOT/video_content/normal.ts"
+OUT="$ROOT/video_content/source_normal.mp4"
+
+SEEK=430
+CUT_START=437.144667
+CUT_END=4729.264667
+HOLD_FRAMES=97
+LOOP_SECONDS=4296
+
+[ -f "$IN" ] || { echo "Missing $IN" >&2; exit 1; }
+
+VSTART=$(echo "$CUT_START - $SEEK - 0.015" | bc)
+VEND=$(echo "$CUT_END - $SEEK - 0.015" | bc)
+ASTART=$(echo "$CUT_START - $SEEK" | bc)
+AEND=$(echo "$CUT_END - $SEEK" | bc)
+
+GOP="-g 100 -keyint_min 100 -sc_threshold 0"
+PRESET=${PRESET:-"-preset medium"}
+
+echo "== Building $OUT ($LOOP_SECONDS s)"
+ffmpeg -y -loglevel warning -stats \
+  -ss "$SEEK" -i "$IN" \
+  -filter_complex "\
+[0:v:0]bwdif=mode=send_frame,trim=start=$VSTART:end=$VEND,setpts=PTS-STARTPTS,fps=25,\
+tpad=stop_mode=clone:stop=$HOLD_FRAMES[v];\
+[0:a:0]atrim=start=$ASTART:end=$AEND,asetpts=PTS-STARTPTS,\
+aresample=48000,apad=whole_dur=$LOOP_SECONDS[a]" \
+  -map "[v]" -map "[a]" \
+  -t "$LOOP_SECONDS" \
+  -c:v libx264 $PRESET $GOP -pix_fmt yuv420p \
+  -profile:v high -level 4.0 -b:v 3000k -maxrate 3300k -bufsize 6000k \
+  -c:a aac -b:a 128k -ar 48000 -ac 2 \
+  -movflags +faststart \
+  "$OUT" 2>&1 | grep -v -E "non-existing PPS|no frame!|Last message repeated|reference picture|Missing reference|mmco"
+
+echo "== Verifying"
+WANT_V=$((LOOP_SECONDS * 25))
+WANT_A=$((LOOP_SECONDS * 48000 / 1024))
+v=$(ffprobe -v error -select_streams v:0 -count_frames \
+      -show_entries stream=nb_read_frames -of csv=p=0 "$OUT" | tr -d '\r,')
+a=$(ffprobe -v error -select_streams a:0 -count_frames \
+      -show_entries stream=nb_read_frames -of csv=p=0 "$OUT" | tr -d '\r,')
+printf '  video %s frames (want %s), audio %s frames (want %s)\n' "$v" "$WANT_V" "$a" "$WANT_A"
+[ "$v" = "$WANT_V" ] && [ "$a" = "$WANT_A" ] || { echo "  FAIL" >&2; exit 1; }
+echo "  ok — $OUT is exactly $LOOP_SECONDS s"

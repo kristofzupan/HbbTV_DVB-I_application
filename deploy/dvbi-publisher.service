@@ -1,0 +1,14 @@
+[Unit]
+Description=DVB-I loop publisher (all channels)
+After=network.target
+
+[Service]
+Type=simple
+User=administrator
+WorkingDirectory=/srv/dvbi/HbbTV_DVB-I_application
+ExecStart=/usr/bin/node scripts/publish-loop.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

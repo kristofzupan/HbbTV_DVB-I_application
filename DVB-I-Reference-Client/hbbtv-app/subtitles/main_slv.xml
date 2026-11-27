@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tt xmlns="http://www.w3.org/ns/ttml"
+    xmlns:tts="http://www.w3.org/ns/ttml#styling"
+    xmlns:ttp="http://www.w3.org/ns/ttml#parameter"
+    xmlns:ttm="http://www.w3.org/ns/ttml#metadata"
+    xmlns:ebutts="urn:ebu:tt:style"
+    ttp:timeBase="media"
+    ttp:cellResolution="32 15"
+    tts:extent="1920px 1080px"
+    xml:lang="slv">
+  <head>
+    <metadata>
+      <ttm:title>Subtitles</ttm:title>
+    </metadata>
+    <styling>
+      <style xml:id="para"
+             tts:fontFamily="sansSerif"
+             tts:fontSize="100%"
+             tts:lineHeight="125%"
+             tts:textAlign="center"/>
+      <style xml:id="text"
+             tts:color="#FFFFFF"
+             tts:backgroundColor="#000000C0"
+             ebutts:linePadding="0.5c"/>
+    </styling>
+    <layout>
+      <region xml:id="bottom"
+              tts:origin="10% 10%"
+              tts:extent="80% 80%"
+              tts:displayAlign="after"
+              tts:writingMode="lrtb"
+              tts:overflow="visible"/>
+    </layout>
+  </head>
+  <body>
+    <div>
+        <p region="bottom" style="para" begin="00000:00:15.490" end="00000:00:20.250"><span style="text">Vsekakor svetujem uporabniku,<br/>da najprej poskusimo s popravilom,</span></p>
+        <p region="bottom" style="para" begin="00000:00:20.330" end="00000:00:23.830"><span style="text">ker stara naprava ravno<br/>tako deluje kot nova.</span></p>
+        <p region="bottom" style="para" begin="00000:00:32.972" end="00000:00:33.984"><span style="text">Dober dan!</span></p>
+        <p region="bottom" style="para" begin="00000:00:34.044" end="00000:00:35.486"><span style="text">Dober dan, kar naprej.</span></p>
+        <p region="bottom" style="para" begin="00000:00:35.565" end="00000:00:39.890"><span style="text">Evo, tukaj sem prinesla računalnik,<br/>to je od moje mame.</span></p>
+        <p region="bottom" style="para" begin="00000:00:40.053" end="00000:00:42.053"><span style="text">Nekaj so težave z njim.</span></p>
+        <p region="bottom" style="para" begin="00000:00:42.256" end="00000:00:44.988"><span style="text">Kar vzemite ga iz torbice,<br/>da pogledava.</span></p>
+        <p region="bottom" style="para" begin="00000:00:46.327" end="00000:00:50.051"><span style="text">Kakšne težave ima,<br/>ja, je pa res malo starejši že.</span></p>
+        <p region="bottom" style="para" begin="00000:01:01.460" end="00000:01:04.460"><span style="text">Prenosnik je delujoč,<br/>greva v operacijski sistem,</span></p>
+        <p region="bottom" style="para" begin="00000:01:04.540" end="00000:01:05.740"><span style="text">sicer je zastarel.</span></p>
+        <p region="bottom" style="para" begin="00000:01:06.120" end="00000:01:11.040"><span style="text">Tukaj bi lahko poskusili s posodobitvijo<br/>na novejši operacijski sistem.</span></p>
+        <p region="bottom" style="para" begin="00000:01:12.540" end="00000:01:15.400"><span style="text">Vidimo, če prenosnik ima licenco.</span></p>
+        <p region="bottom" style="para" begin="00000:01:16.760" end="00000:01:20.320"><span style="text">Licenca je. Najbolje,<br/>da se to prevzame v servis,</span></p>
+        <p region="bottom" style="para" begin="00000:01:20.400" end="00000:01:23.307"><span style="text">da ga pregledamo, vas bomo obvestili.</span></p>
+        <p region="bottom" style="para" begin="00000:01:34.510" end="00000:01:39.030"><span style="text">Popravilo računalnikov bi<br/>jaz razdelil na dva dela.</span></p>
+        <p region="bottom" style="para" begin="00000:01:39.230" end="00000:01:41.110"><span style="text">Prvi del je tisti računalniški del,</span></p>
+        <p region="bottom" style="para" begin="00000:01:41.190" end="00000:01:44.250"><span style="text">kjer menjamo trde diske,<br/>spominske module,</span></p>
+        <p region="bottom" style="para" begin="00000:01:44.450" end="00000:01:47.670"><span style="text">pogledamo čez Windowsi kaj<br/>narobe ali tekoče deluje,</span></p>
+        <p region="bottom" style="para" begin="00000:01:47.734" end="00000:01:50.128"><span style="text">očistimo prah,<br/>tečaj in tako naprej.</span></p>
+        <p region="bottom" style="para" begin="00000:01:50.215" end="00000:01:55.140"><span style="text">In to je enota,<br/>na katero se namesti operacijski</span></p>
+        <p region="bottom" style="para" begin="00000:01:55.220" end="00000:01:58.320"><span style="text">sistem, kamor se vse shranjuje.</span></p>
+        <p region="bottom" style="para" begin="00000:01:59.220" end="00000:02:00.460"><span style="text">To je trdi disk,</span></p>
+        <p region="bottom" style="para" begin="00000:02:00.660" end="00000:02:04.840"><span style="text">ta je zastarel in je šibka<br/>točka starejših prenosnikov.</span></p>
+        <p region="bottom" style="para" begin="00000:02:04.920" end="00000:02:10.200"><span style="text">Potem ga nadomestimo z elektronskim<br/>SSD diskom in bomo pripomogli,</span></p>
+        <p region="bottom" style="para" begin="00000:02:10.280" end="00000:02:14.780"><span style="text">da bo tole zadostovalo našim potrebam,</span></p>
+        <p region="bottom" style="para" begin="00000:02:14.900" end="00000:02:17.620"><span style="text">ko se tiče hitrosti in zmogljivosti.</span></p>
+        <p region="bottom" style="para" begin="00000:02:17.840" end="00000:02:22.280"><span style="text">Čeprav je računalnik že starejši,<br/>tako, to je stari disk,</span></p>
+        <p region="bottom" style="para" begin="00000:02:22.360" end="00000:02:26.600"><span style="text">tega bomo nadomestili z novim<br/>elektronskim in to je to.</span></p>
+        <p region="bottom" style="para" begin="00000:02:32.820" end="00000:02:37.080"><span style="text">Kaj pa se zgodi,<br/>ko prenosnik ima večje težave,</span></p>
+        <p region="bottom" style="para" begin="00000:02:37.160" end="00000:02:41.200"><span style="text">torej se ne vklopi,<br/>mrtev je, črte po ekranu,</span></p>
+        <p region="bottom" style="para" begin="00000:02:41.280" end="00000:02:43.720"><span style="text">takrat pa nastopimo elektroniki.</span></p>
+        <p region="bottom" style="para" begin="00000:02:44.720" end="00000:02:49.780"><span style="text">Sestavni del prenosnika je sistemska<br/>plošča in ta sistemska plošča</span></p>
+        <p region="bottom" style="para" begin="00000:02:49.860" end="00000:02:55.160"><span style="text">velja kot glavni rezervni del in lahko<br/>zamenjamo samo sistemsko ploščo.</span></p>
+        <p region="bottom" style="para" begin="00000:02:55.340" end="00000:02:59.080"><span style="text">Kaj več pa na njej menjati ne moremo,<br/>kar se tiče računalništva.</span></p>
+        <p region="bottom" style="para" begin="00000:02:59.160" end="00000:03:03.720"><span style="text">Takrat to ploščo pogledamo v elektroniki,<br/>jo popravimo.</span></p>
+        <p region="bottom" style="para" begin="00000:03:03.840" end="00000:03:08.640"><span style="text">To zahteva predvsem truda,<br/>zahteva izobrazbo,</span></p>
+        <p region="bottom" style="para" begin="00000:03:08.720" end="00000:03:10.700"><span style="text">učimo se elektroniki celo življenje,</span></p>
+        <p region="bottom" style="para" begin="00000:03:10.780" end="00000:03:14.080"><span style="text">se izpopolnjujemo,<br/>sodelujemo z drugimi servisi.</span></p>
+        <p region="bottom" style="para" begin="00000:03:16.360" end="00000:03:21.040"><span style="text">Če nam uspe popraviti to ploščo,<br/>smo naredili veliko,</span></p>
+        <p region="bottom" style="para" begin="00000:03:21.120" end="00000:03:22.980"><span style="text">ker to so zelo drage stvari.</span></p>
+        <p region="bottom" style="para" begin="00000:03:23.060" end="00000:03:29.120"><span style="text">In v večjih primerih menjava te<br/>plošče v prenosniku ni smiselna,</span></p>
+        <p region="bottom" style="para" begin="00000:03:29.200" end="00000:03:33.520"><span style="text">ker je cena te plošče skoraj<br/>toliko kot novi prenosnik.</span></p>
+        <p region="bottom" style="para" begin="00000:03:33.600" end="00000:03:35.460"><span style="text">Popravilo plošče je smiselno,</span></p>
+        <p region="bottom" style="para" begin="00000:03:35.540" end="00000:03:39.160"><span style="text">ker naša storitev je relativno</span></p>
+        <p region="bottom" style="para" begin="00000:03:39.240" end="00000:03:43.240"><span style="text">poceni proti ceni nove plošče.</span></p>
+        <p region="bottom" style="para" begin="00000:03:43.360" end="00000:03:48.240"><span style="text">S popravilom tudi naredimo,<br/>da prenosnik deluje dlje časa,</span></p>
+        <p region="bottom" style="para" begin="00000:03:48.320" end="00000:03:50.860"><span style="text">ker imamo nekako nadzor<br/>nad to elektroniko,</span></p>
+        <p region="bottom" style="para" begin="00000:03:50.940" end="00000:03:53.920"><span style="text">ki to znamo popravljati.<br/>Ni nas strah reklamacije.</span></p>
+        <p region="bottom" style="para" begin="00000:03:54.000" end="00000:03:57.940"><span style="text">Torej si upamo elektroniki reči,<br/>da ta prenosnik bo deloval,</span></p>
+        <p region="bottom" style="para" begin="00000:03:58.020" end="00000:04:00.487"><span style="text">dokler ga stranka želi imeti na mizi.</span></p>
+        <p region="bottom" style="para" begin="00000:04:04.890" end="00000:04:09.290"><span style="text">Tukaj bomo samo še pogledali na hitro,<br/>kakšna je enota spominska,</span></p>
+        <p region="bottom" style="para" begin="00000:04:10.130" end="00000:04:13.130"><span style="text">da vam povemo okvirne<br/>stroške popravila.</span></p>
+        <p region="bottom" style="para" begin="00000:04:13.670" end="00000:04:16.410"><span style="text">Potem bomo prenosnik<br/>pregledali bolj natančno</span></p>
+        <p region="bottom" style="para" begin="00000:04:16.490" end="00000:04:18.570"><span style="text">in vam poslali ponudbo za popravilo,</span></p>
+        <p region="bottom" style="para" begin="00000:04:18.650" end="00000:04:19.917"><span style="text">da se lahko odločite.</span></p>
+    </div>
+  </body>
+</tt>

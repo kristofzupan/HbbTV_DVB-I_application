@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ServiceList xmlns="urn:dvb:metadata:servicediscovery:2024" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:tva="urn:tva:metadata:2024" xmlns:dvbi-types="urn:dvb:metadata:servicediscovery-types:2023" xsi:schemaLocation="urn:dvb:metadata:servicediscovery:2024 schemas/dvbi_v6.0.xsd" xml:lang="sl" id="tag:lmmfe.org,2026:thesis-accessibility" version="8">
+  <Name>Magisterij seznam storitev</Name>
+  <ProviderName>LMMFE</ProviderName>
+  <LCNTableList>
+    <LCNTable>
+      <LCN channelNumber="1" serviceRef="tag:lmmfe.org,2026:program"/>
+      <LCN channelNumber="2" serviceRef="tag:lmmfe.org,2026:tvmaribor"/>
+      <LCN channelNumber="3" serviceRef="tag:lmmfe.org,2026:prenosniki"/>
+      <LCN channelNumber="4" serviceRef="tag:lmmfe.org,2026:napoved"/>
+      <LCN channelNumber="5" serviceRef="tag:lmmfe.org,2026:bucko"/>
+    </LCNTable>
+  </LCNTableList>
+
+  <Service version="1">
+    <UniqueIdentifier>tag:lmmfe.org,2026:program</UniqueIdentifier>
+    <ServiceInstance priority="1">
+      <DASHDeliveryParameters>
+        <UriBasedLocation contentType="application/dash+xml">
+          <dvbi-types:URI>http://localhost:9080/stream/live/normal/stream.mpd</dvbi-types:URI>
+        </UriBasedLocation>
+      </DASHDeliveryParameters>
+    </ServiceInstance>
+    <ServiceName>SLO 1</ServiceName>
+    <ProviderName>LMMFE</ProviderName>
+  </Service>
+
+  <Service version="1">
+    <UniqueIdentifier>tag:lmmfe.org,2026:tvmaribor</UniqueIdentifier>
+    <ServiceInstance priority="1">
+      <ContentAttributes>
+        <AccessibilityAttributes>
+          <tva:SigningAttributes>
+            <tva:Coding href="urn:dvb:metadata:cs:VideoCodecCS:2022:1.4.12"/>
+            <tva:SignLanguage>ysl</tva:SignLanguage>
+            <tva:Closed>false</tva:Closed>
+          </tva:SigningAttributes>
+        </AccessibilityAttributes>
+      </ContentAttributes>
+      <DASHDeliveryParameters>
+        <UriBasedLocation contentType="application/dash+xml">
+          <dvbi-types:URI>http://localhost:9080/stream/live/tvmaribor/stream.mpd</dvbi-types:URI>
+        </UriBasedLocation>
+      </DASHDeliveryParameters>
+    </ServiceInstance>
+    <ServiceName>TV Maribor</ServiceName>
+    <ProviderName>LMMFE</ProviderName>
+  </Service>
+
+  <Service version="1">
+    <UniqueIdentifier>tag:lmmfe.org,2026:prenosniki</UniqueIdentifier>
+
+    <ServiceInstance priority="1">
+      <DisplayName>Tolmač</DisplayName>
+      <RelatedMaterial>
+        <tva:HowRelated href="urn:dvb:metadata:cs:LinkedApplicationCS:2019:1.1"/>
+        <tva:MediaLocator>
+          <tva:MediaUri contentType="application/vnd.dvb.ait+xml">http://localhost:9080/hbbtv-app/aitx.php?service=tag:lmmfe.org,2026:prenosniki</tva:MediaUri>
+        </tva:MediaLocator>
+        <tva:AccessibilityAttributes>
+          <tva:SigningAttributes>
+            <tva:AppInformation>
+              <tva:RequiredStandardVersion>urn:hbbtv:appinformation:standardversion:hbbtv:1.7.1</tva:RequiredStandardVersion>
+            </tva:AppInformation>
+            <tva:Coding href="urn:dvb:metadata:cs:VideoCodecCS:2022:1.1.10"/>
+            <tva:SignLanguage>ysl</tva:SignLanguage>
+            <tva:Closed>true</tva:Closed>
+          </tva:SigningAttributes>
+        </tva:AccessibilityAttributes>
+      </RelatedMaterial>
+
+      <ContentAttributes>
+        <AccessibilityAttributes>
+          <tva:SubtitleAttributes>
+            <tva:Carriage href="urn:tva:metadata:cs:SubtitleCarriageCS:2023:3"/>
+            <tva:Coding href="urn:tva:metadata:cs:SubtitleCodingFormatCS:2023:3.2.1"/>
+            <tva:SubtitleLanguage>sl</tva:SubtitleLanguage>
+            <tva:Purpose href="urn:tva:metadata:cs:SubtitlePurposeCS:2023:2"/>
+            <tva:SuitableForTTS>false</tva:SuitableForTTS>
+          </tva:SubtitleAttributes>
+          <tva:SigningAttributes>
+            <tva:Coding href="urn:dvb:metadata:cs:VideoCodecCS:2022:1.1.10"/>
+            <tva:SignLanguage>ysl</tva:SignLanguage>
+            <tva:Closed>true</tva:Closed>
+          </tva:SigningAttributes>
+        </AccessibilityAttributes>
+      </ContentAttributes>
+
+      <DASHDeliveryParameters>
+        <UriBasedLocation contentType="application/dash+xml">
+          <dvbi-types:URI>http://localhost:9080/stream/live/prenosniki/stream.mpd</dvbi-types:URI>
+        </UriBasedLocation>
+      </DASHDeliveryParameters>
+    </ServiceInstance>
+
+    <ServiceName>Prenosniki - testni kanal 1</ServiceName>
+    <ProviderName>LMMFE</ProviderName>
+  </Service>
+
+  <Service version="1">
+    <UniqueIdentifier>tag:lmmfe.org,2026:napoved</UniqueIdentifier>
+
+    <ServiceInstance priority="1">
+      <DisplayName>Tolmač</DisplayName>
+      <RelatedMaterial>
+        <tva:HowRelated href="urn:dvb:metadata:cs:LinkedApplicationCS:2019:1.1"/>
+        <tva:MediaLocator>
+          <tva:MediaUri contentType="application/vnd.dvb.ait+xml">http://localhost:9080/hbbtv-app/aitx.php?service=tag:lmmfe.org,2026:napoved</tva:MediaUri>
+        </tva:MediaLocator>
+        <tva:AccessibilityAttributes>
+          <tva:SigningAttributes>
+            <tva:AppInformation>
+              <tva:RequiredStandardVersion>urn:hbbtv:appinformation:standardversion:hbbtv:1.7.1</tva:RequiredStandardVersion>
+            </tva:AppInformation>
+            <tva:Coding href="urn:dvb:metadata:cs:VideoCodecCS:2022:1.1.10"/>
+            <tva:SignLanguage>ysl</tva:SignLanguage>
+            <tva:Closed>true</tva:Closed>
+          </tva:SigningAttributes>
+        </tva:AccessibilityAttributes>
+      </RelatedMaterial>
+      <ContentAttributes>
+        <AccessibilityAttributes>
+          <tva:SigningAttributes>
+            <tva:Coding href="urn:dvb:metadata:cs:VideoCodecCS:2022:1.1.10"/>
+            <tva:SignLanguage>ysl</tva:SignLanguage>
+            <tva:Closed>true</tva:Closed>
+          </tva:SigningAttributes>
+        </AccessibilityAttributes>
+      </ContentAttributes>
+      <DASHDeliveryParameters>
+        <UriBasedLocation contentType="application/dash+xml">
+          <dvbi-types:URI>http://localhost:9080/stream/live/napoved/stream.mpd</dvbi-types:URI>
+        </UriBasedLocation>
+      </DASHDeliveryParameters>
+    </ServiceInstance>
+
+    <ServiceName>Napoved - testni kanal 2</ServiceName>
+    <ProviderName>LMMFE</ProviderName>
+  </Service>
+
+  <Service version="1">
+    <UniqueIdentifier>tag:lmmfe.org,2026:bucko</UniqueIdentifier>
+
+    <ServiceInstance priority="1">
+      <DisplayName>Tolmač</DisplayName>
+      <RelatedMaterial>
+        <tva:HowRelated href="urn:dvb:metadata:cs:LinkedApplicationCS:2019:1.1"/>
+        <tva:MediaLocator>
+          <tva:MediaUri contentType="application/vnd.dvb.ait+xml">http://localhost:9080/hbbtv-app/aitx.php?service=tag:lmmfe.org,2026:bucko</tva:MediaUri>
+        </tva:MediaLocator>
+        <tva:AccessibilityAttributes>
+          <tva:SigningAttributes>
+            <tva:AppInformation>
+              <tva:RequiredStandardVersion>urn:hbbtv:appinformation:standardversion:hbbtv:1.7.1</tva:RequiredStandardVersion>
+            </tva:AppInformation>
+            <tva:Coding href="urn:dvb:metadata:cs:VideoCodecCS:2022:1.1.10"/>
+            <tva:SignLanguage>ysl</tva:SignLanguage>
+            <tva:Closed>true</tva:Closed>
+          </tva:SigningAttributes>
+        </tva:AccessibilityAttributes>
+      </RelatedMaterial>
+      <ContentAttributes>
+        <AccessibilityAttributes>
+          <tva:SigningAttributes>
+            <tva:Coding href="urn:dvb:metadata:cs:VideoCodecCS:2022:1.1.10"/>
+            <tva:SignLanguage>ysl</tva:SignLanguage>
+            <tva:Closed>true</tva:Closed>
+          </tva:SigningAttributes>
+        </AccessibilityAttributes>
+      </ContentAttributes>
+      <DASHDeliveryParameters>
+        <UriBasedLocation contentType="application/dash+xml">
+          <dvbi-types:URI>http://localhost:9080/stream/live/bucko/stream.mpd</dvbi-types:URI>
+        </UriBasedLocation>
+      </DASHDeliveryParameters>
+    </ServiceInstance>
+
+    <ServiceName>Film Bučko</ServiceName>
+    <ProviderName>LMMFE</ProviderName>
+  </Service>
+
+</ServiceList>

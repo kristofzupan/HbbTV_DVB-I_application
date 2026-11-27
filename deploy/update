@@ -1,0 +1,202 @@
+#!/bin/sh
+set -e
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+cd "$ROOT"
+
+PULL=yes
+REBUILD_SOURCE=no
+for arg in "$@"; do
+  case "$arg" in
+    --source)  REBUILD_SOURCE=yes ;;
+    --no-pull) PULL=no ;;
+    *) echo "Unknown option: $arg" >&2; exit 2 ;;
+  esac
+done
+
+if [ "$(id -u)" = "0" ]; then
+  echo "Run as the repository owner, not root — the script sudos where it needs to." >&2
+  exit 1
+fi
+
+say() { printf '\n\033[1m== %s\033[0m\n' "$1"; }
+
+SOURCES="normal tvmaribor prenosniki napoved bucko"
+MISSING=""
+for s in $SOURCES; do
+  [ -f "video_content/source_$s.mp4" ] || MISSING="$MISSING video_content/source_$s.mp4"
+done
+if [ -n "$MISSING" ]; then
+  echo "Missing:$MISSING" >&2
+  echo "Copy them from the machine that built them, e.g.:" >&2
+  echo "  scp$MISSING HOST:$ROOT/video_content/" >&2
+  echo "Nothing has been changed." >&2
+  exit 1
+fi
+
+sudo -v
+
+say "Stopping publisher"
+sudo systemctl stop dvbi-publisher || true
+
+say "Updating working tree"
+DIRTY=$(git status --porcelain --untracked-files=no)
+if [ -n "$DIRTY" ]; then
+  echo "Discarding local changes to tracked files:"
+  echo "$DIRTY" | sed 's/^/  /'
+  git checkout -- .
+fi
+
+OLD=$(git rev-parse HEAD)
+if [ "$PULL" = yes ]; then
+  git pull --ff-only
+fi
+NEW=$(git rev-parse HEAD)
+
+if [ "$OLD" = "$NEW" ]; then
+  echo "Already at $(git log --oneline -1)"
+  CHANGED=""
+else
+  echo "$(git log --oneline -1 "$OLD")  ->  $(git log --oneline -1 "$NEW")"
+  CHANGED=$(git diff --name-only "$OLD" "$NEW")
+fi
+
+changed() { [ -n "$CHANGED" ] && echo "$CHANGED" | grep -q "^$1"; }
+
+say "Configuring install location"
+node scripts/start-dvbi-reference-client.js || true
+
+BASE=$(sed -n 's/.*\$install_location *= *"\([^"]*\)".*/\1/p' \
+        DVB-I-Reference-Client/backend/configuration.php)
+[ -n "$BASE" ] || { echo "Could not read install_location" >&2; exit 1; }
+
+REPACKAGE=no
+
+if changed "ffmpeg_stream_commands/prerender"; then
+  if [ -d video_content/urejeno ] && [ -f video_content/rtv_mb.mp4 ]; then
+    echo "prerender changed — re-encoding the sources"
+    REBUILD_SOURCE=yes
+  else
+    echo "prerender changed, but its inputs are not on this host: rebuild the"
+    echo "sources where they are and copy them here, then run with --no-pull."
+  fi
+fi
+
+if changed "ffmpeg_stream_commands/package-loop" \
+   || changed "DVB-I-Reference-Client/hbbtv-app/subtitles"; then
+  REPACKAGE=yes
+fi
+
+if [ "$REBUILD_SOURCE" = yes ]; then
+  say "Re-encoding sources"
+  sh ffmpeg_stream_commands/prerender
+  REPACKAGE=yes
+fi
+
+if [ "$REPACKAGE" = yes ] || [ ! -f DVB-I-Reference-Client/stream/loop/loop.json ]; then
+  say "Packaging the loop"
+  sh ffmpeg_stream_commands/package-loop
+fi
+
+if changed "deploy/nginx-dvbi.conf"; then
+  say "Installing nginx site"
+  sudo cp deploy/nginx-dvbi.conf /etc/nginx/sites-available/dvbi
+  sudo nginx -t
+  sudo systemctl reload nginx
+fi
+
+if changed "deploy/dvbi-locations.conf"; then
+  say "Installing nginx location rules"
+  sudo cp deploy/dvbi-locations.conf /etc/nginx/snippets/dvbi-locations.conf
+  sudo nginx -t
+  sudo systemctl reload nginx
+fi
+
+if changed "deploy/dvbi-publisher.service"; then
+  say "Installing systemd unit"
+  sudo cp deploy/dvbi-publisher.service /etc/systemd/system/
+  sudo systemctl daemon-reload
+fi
+
+say "Preparing test-session data"
+sudo install -d -o "$(id -un)" -g www-data -m 2775 test-data test-data/sessions
+
+if [ ! -f DVB-I-Reference-Client/stream/loop/loop.json ]; then
+  echo "No packaged loop found. Build it once with:" >&2
+  echo "  sh ffmpeg_stream_commands/prerender" >&2
+  echo "  sh ffmpeg_stream_commands/package-loop" >&2
+  exit 1
+fi
+
+say "Starting publisher"
+sudo systemctl start dvbi-publisher
+sleep 15
+
+say "Verifying"
+FAIL=0
+
+count() {
+  _n=$(curl -sf --max-time 10 "$1" | grep -cF -e "$2") || _n=0
+  echo "$_n"
+}
+
+check() {
+  if [ "$2" = "$3" ]; then
+    printf '  ok   %s\n' "$1"
+  else
+    printf '  FAIL %s (got %s, want %s)\n' "$1" "$2" "$3"
+    FAIL=1
+  fi
+}
+
+for ch in normal tvmaribor; do
+  LIVE=$(curl -sf --max-time 10 "$BASE/stream/live/$ch/stream.mpd" | grep -cF 'type="dynamic"') || LIVE=0
+  check "$ch is live" "$LIVE" 1
+done
+
+for ch in prenosniki napoved bucko; do
+  ROLES=$(curl -sf --max-time 10 "$BASE/stream/live/$ch/stream.mpd" | grep -cE 'value="(main|sign)"') || ROLES=0
+  check "$ch declares both main and sign roles" "$ROLES" 2
+done
+
+check "test-session state is served" "$(count "$BASE/test/state.php" '"counter"')" 1
+
+LIST="$BASE/backend/servicelists/thesis.xml"
+
+check "service list declares signing seven times" \
+      "$(count "$LIST" "<tva:SigningAttributes>")" 7
+
+check "accessibility declared on the service instances" \
+      "$(count "$LIST" "<AccessibilityAttributes>")" 4
+
+check "service list declares subtitles once" \
+      "$(count "$LIST" "<tva:SubtitleAttributes>")" 1
+
+check "signing declared for the linked application" \
+      "$(count "$LIST" "<tva:AccessibilityAttributes>")" 3
+
+check "player loads the remote-control layer" \
+      "$(count "$BASE/frontend/android/player.html" "js/remote.js")" 1
+
+AIT=$(count "$BASE/hbbtv-app/aitx.php" "$BASE")
+if [ "$AIT" -gt 0 ]; then
+  printf '  ok   XML AIT points at %s\n' "$BASE"
+else
+  printf '  FAIL XML AIT does not reference %s\n' "$BASE"
+  FAIL=1
+fi
+
+if systemctl is-active --quiet dvbi-publisher; then
+  printf '  ok   publisher running\n'
+else
+  printf '  FAIL publisher not running\n'
+  FAIL=1
+fi
+
+say "Done"
+echo "  commit:  $(git log --oneline -1)"
+echo "  client:  $BASE/frontend/android/player.html"
+echo
+echo "Hard-refresh the browser (Cmd+Shift+R) — the app is served without cache busting."
+
+exit $FAIL

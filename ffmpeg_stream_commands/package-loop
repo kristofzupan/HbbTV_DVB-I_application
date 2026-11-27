@@ -1,0 +1,231 @@
+#!/bin/sh
+set -e
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+VC="$ROOT/video_content"
+SUBS="$ROOT/DVB-I-Reference-Client/hbbtv-app/subtitles/main_slv.xml"
+LOOP="$ROOT/DVB-I-Reference-Client/stream/loop"
+
+SEG_SECONDS=${SEG_SECONDS:-4}
+
+PRESENTATIONS="normal:plain tvmaribor:plain prenosniki:signed napoved:signed bucko:signed"
+SUBTITLED=prenosniki
+
+for p in $PRESENTATIONS; do
+  f="$VC/source_${p%%:*}.mp4"
+  [ -f "$f" ] && continue
+  if [ "${p%%:*}" = normal ]; then
+    echo "Missing $f — run ./prerender-normal where the recording is," >&2
+    echo "or copy the file over from a machine that has it" >&2
+  else
+    echo "Missing $f — run ./prerender first" >&2
+  fi
+  exit 1
+done
+[ -f "$SUBS" ] || { echo "Missing $SUBS" >&2; exit 1; }
+
+command -v MP4Box >/dev/null || {
+  echo "MP4Box not found. Install GPAC (macOS: brew install gpac,"          >&2
+  echo "Debian/Ubuntu: sudo apt install gpac)."                             >&2
+  exit 1
+}
+
+rm -rf "$LOOP"
+
+dash_av() {
+  _src=$1; _out=$2; shift 2
+  ffmpeg -y -loglevel warning -i "$_src" "$@" -c copy \
+    -f dash -format_options "movflags=+cmaf" \
+    -seg_duration "$SEG_SECONDS" -use_template 1 -use_timeline 0 -window_size 0 \
+    "$_out/packager.mpd"
+}
+
+whole_segments() {
+  _d=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$1" | cut -d. -f1)
+  [ $(( (_d / SEG_SECONDS) * SEG_SECONDS )) -eq "$_d" ] || {
+    echo "$1 is ${_d}s, not a whole number of ${SEG_SECONDS}s segments — re-run its prerender" >&2
+    exit 1
+  }
+  echo "$_d"
+}
+
+normalise_segments() {
+  _dir=$1; _target=$2
+  for _rep in $(ls "$_dir" | sed -n 's/^chunk-stream\([0-9]*\)-.*/\1/p' | sort -u); do
+    _n=$(ls "$_dir"/chunk-stream$_rep-*.m4s | wc -l | tr -d ' ')
+    while [ "$_n" -gt "$_target" ]; do
+      _last=$(printf '%s/chunk-stream%s-%05d.m4s' "$_dir" "$_rep" "$_n")
+      _prev=$(printf '%s/chunk-stream%s-%05d.m4s' "$_dir" "$_rep" $((_n - 1)))
+      cat "$_last" >> "$_prev"
+      rm -f "$_last"
+      _n=$((_n - 1))
+    done
+  done
+}
+
+echo "== Segmenting audio and video"
+DESCRIBE=""
+for p in $PRESENTATIONS; do
+  name=${p%%:*}; kind=${p#*:}
+  src="$VC/source_$name.mp4"
+  dur=$(whole_segments "$src")
+  mkdir -p "$LOOP/$name"
+  if [ "$kind" = signed ]; then
+    dash_av "$src" "$LOOP/$name" -map 0:v:0 -map 0:a:0 -map 0:v:1
+  else
+    dash_av "$src" "$LOOP/$name" -map 0:v:0 -map 0:a:0
+  fi
+  normalise_segments "$LOOP/$name" $((dur / SEG_SECONDS))
+  echo "  $name: $((dur / SEG_SECONDS)) segments, ${dur}s"
+  DESCRIBE="$DESCRIBE $name:$kind:$dur"
+done
+
+SUB_IDX=3
+
+echo "== Segmenting subtitles"
+SUB_DUR=""
+for s in $DESCRIBE; do
+  case "$s" in "$SUBTITLED":*) SUB_DUR=${s##*:} ;; esac
+done
+_tmp=$(mktemp -d)
+_end=$(printf '%05d:%02d:%02d' $((SUB_DUR / 3600)) $((SUB_DUR % 3600 / 60)) $((SUB_DUR % 60)))
+_last=$(printf '%05d:%02d:%02d' $(((SUB_DUR - 1) / 3600)) $(((SUB_DUR - 1) % 3600 / 60)) $(((SUB_DUR - 1) % 60)))
+awk -v first="        <p region=\"bottom\" style=\"para\" begin=\"00000:00:00.000\" end=\"00000:00:00.040\"></p>" \
+    -v last="        <p region=\"bottom\" style=\"para\" begin=\"$_last.960\" end=\"$_end.000\"></p>" '
+      /^    <\/div>/ && !l { print last; l = 1 }
+      { print }
+      /^    <div>/ && !f { print first; f = 1 }' "$SUBS" > "$_tmp/subs.xml"
+grep -q "end=\"$_end.000\"></p>" "$_tmp/subs.xml" &&
+grep -q 'end="00000:00:00.040"></p>' "$_tmp/subs.xml" || {
+  echo "Could not add the opening and closing cues to $SUBS — has its layout changed?" >&2; exit 1; }
+( cd "$_tmp" &&
+  MP4Box -quiet -add "subs.xml:ext=ttml" -new subs.mp4 >/dev/null 2>&1 &&
+  MP4Box -quiet -dash $((SEG_SECONDS * 1000)) -profile dashavc264:live \
+         -segment-name 'sub-$Number$' -out subs.mpd subs.mp4 >/dev/null 2>&1 ) || {
+  echo "MP4Box failed on the subtitles" >&2; exit 1; }
+
+cp "$_tmp/sub-init.mp4" "$LOOP/$SUBTITLED/init-stream$SUB_IDX.m4s"
+_total=$(ls "$_tmp"/sub-*.m4s | wc -l | tr -d ' ')
+_n=1
+while [ "$_n" -le "$_total" ]; do
+  cp "$_tmp/sub-$_n.m4s" "$(printf '%s/chunk-stream%d-%05d.m4s' "$LOOP/$SUBTITLED" "$SUB_IDX" "$_n")"
+  _n=$((_n + 1))
+done
+rm -rf "$_tmp"
+
+echo "== Normalising segments"
+set --
+for p in $PRESENTATIONS; do set -- "$@" "$LOOP/${p%%:*}"; done
+python3 "$ROOT/scripts/normalise-segments.py" "$@"
+
+echo "== Describing the loop"
+python3 - "$LOOP" "$SEG_SECONDS" "$SUBTITLED" "$SUB_IDX" $DESCRIBE <<'PY'
+import json, struct, sys, xml.etree.ElementTree as ET, os
+loop, segsec, subtitled, sub_idx = sys.argv[1:5]
+segsec = int(segsec)
+NS = "{urn:mpeg:dash:schema:mpd:2011}"
+out = {"segmentSeconds": segsec, "presentations": {}}
+
+for spec in sys.argv[5:]:
+    name, kind, dur = spec.split(":")
+    dur = int(dur)
+    reps = []
+    tree = ET.parse(os.path.join(loop, name, "packager.mpd"))
+    for aset in tree.getroot().iter(NS + "AdaptationSet"):
+        rep = aset.find(NS + "Representation")
+        r = {"id": rep.get("id"),
+             "contentType": aset.get("contentType"),
+             "mimeType": rep.get("mimeType") or aset.get("mimeType"),
+             "codecs": rep.get("codecs"),
+             "bandwidth": int(rep.get("bandwidth") or 0)}
+        for k in ("width", "height", "frameRate", "audioSamplingRate", "par", "sar"):
+            v = rep.get(k) or aset.get(k)
+            if v: r[k] = v
+        reps.append(r)
+    if kind == "signed":
+        assert len(reps) == 3, f"{name}: expected 3 tracks, got {len(reps)}"
+        reps[0]["role"] = "main"
+        reps[2]["role"] = "sign"
+    if name == subtitled:
+        reps.append({"id": sub_idx, "contentType": "text",
+                     "mimeType": "application/mp4", "codecs": "stpp.ttml.etd1",
+                     "bandwidth": 2500, "lang": "sl", "role": "subtitle"})
+
+    for r in reps:
+        init = open(os.path.join(loop, name, f"init-stream{r['id']}.m4s"), "rb").read()
+        j = init.find(b"mdhd")
+        ver = init[j + 4]
+        r["timescale"] = struct.unpack(">I", init[j + 20:j + 24] if ver == 1
+                                       else init[j + 16:j + 20])[0]
+
+    out["presentations"][name] = {"segments": dur // segsec,
+                                  "loopSeconds": dur,
+                                  "representations": reps}
+
+with open(os.path.join(loop, "loop.json"), "w") as f:
+    json.dump(out, f, indent=2)
+print(f"  {loop}/loop.json")
+PY
+for p in $PRESENTATIONS; do rm -f "$LOOP/${p%%:*}/packager.mpd"; done
+
+echo "== Verifying"
+fail=0
+for spec in $DESCRIBE; do
+  d=${spec%%:*}; want_dur=${spec##*:}
+  want_segs=$((want_dur / SEG_SECONDS))
+  sub_idx=""; [ "$d" = "$SUBTITLED" ] && sub_idx=$SUB_IDX
+  for rep in $(ls "$LOOP/$d" | sed -n 's/^chunk-stream\([0-9]*\)-.*/\1/p' | sort -u); do
+    n=$(ls "$LOOP/$d"/chunk-stream$rep-*.m4s 2>/dev/null | wc -l | tr -d ' ')
+    [ -f "$LOOP/$d/init-stream$rep.m4s" ] || { echo "    FAIL: no init segment" >&2; fail=1; }
+    [ "$n" = "$want_segs" ] || { echo "    FAIL: $d stream $rep has $n segments, expected $want_segs" >&2; fail=1; }
+
+    if [ "$rep" = "$sub_idx" ]; then
+      printf '  %-10s stream %s: %4s segments (subtitles, sparse by nature)\n' "$d" "$rep" "$n"
+      continue
+    fi
+
+    _probe=$(mktemp)
+    cat "$LOOP/$d/init-stream$rep.m4s" "$LOOP/$d"/chunk-stream$rep-*.m4s > "$_probe" 2>/dev/null
+    dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$_probe" 2>/dev/null)
+    rm -f "$_probe"
+    printf '  %-10s stream %s: %4s segments, %ss\n' "$d" "$rep" "$n" "$dur"
+
+    awk -v got="$dur" -v want="$want_dur" -v slack=0.0214 '
+      BEGIN {
+        d = got - want;
+        if (d < 0) d = -d;
+        exit (d <= slack) ? 0 : 1;
+      }' || { echo "    FAIL: decodes to $dur, expected $want_dur (±0.0214)" >&2; fail=1; }
+  done
+done
+python3 - "$LOOP" "$SEG_SECONDS" "$SUBTITLED" "$SUB_IDX" <<'PY' || fail=1
+import re, sys, os
+loop, seg, name, idx = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
+
+def secs(t):
+    h, m, s = t.split(":")
+    return int(h) * 3600 + int(m) * 60 + float(s)
+
+bad = checked = n = 0
+while True:
+    n += 1
+    p = os.path.join(loop, name, f"chunk-stream{idx}-{n:05d}.m4s")
+    if not os.path.exists(p):
+        break
+    data = open(p, "rb").read()
+    lo, hi = (n - 1) * seg, n * seg
+    for b, e in zip(re.findall(rb'begin="([^"]+)"', data),
+                    re.findall(rb'end="([^"]+)"', data)):
+        bs, es = secs(b.decode()), secs(e.decode())
+        checked += 1
+        if es <= lo or bs >= hi:
+            print(f"    FAIL {name} segment {n} covers {lo}-{hi}s "
+                  f"but holds a cue at {bs}-{es}s", file=sys.stderr)
+            bad += 1
+print(f"  {name:10s} subtitles: {checked} cues, all within their segment"
+      if not bad else f"  {name:10s} subtitles: {bad} misplaced")
+sys.exit(1 if bad else 0)
+PY
+
+[ "$fail" = "0" ] || exit 1
+echo "  ok —$(for s in $DESCRIBE; do printf ' %s %ss,' "${s%%:*}" "${s##*:}"; done | sed 's/,$//')"
