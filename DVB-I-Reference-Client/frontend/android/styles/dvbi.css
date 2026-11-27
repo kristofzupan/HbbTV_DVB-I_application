@@ -82,6 +82,7 @@ body.player {
 }
 .video_wrapper .player-ui {
   position: absolute;
+  z-index: 6;
   top: 0;
   left: 0;
   width: 100%;
@@ -91,6 +92,9 @@ body.player {
   -webkit-transition: all 0.2s linear;
   -o-transition: all 0.2s linear;
   transition: all 0.2s linear;
+}
+.video_wrapper .player-ui.hide {
+  pointer-events: none;
 }
 .video_wrapper .player-ui .channels {
   background-image: url("../images/bg_chinfo.png");

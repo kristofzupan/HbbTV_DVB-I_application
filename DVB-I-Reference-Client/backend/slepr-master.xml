@@ -45,7 +45,6 @@
 		<sd-types:Delivery>
 				<sd-types:DASHDelivery/>
 			</sd-types:Delivery>
-			<!-- Must equal the id attribute of servicelists/thesis.xml. -->
 			<sd-types:ServiceListId>tag:lmmfe.org,2026:thesis-accessibility</sd-types:ServiceListId>
 		</sld:ServiceListOffering>
 		<sld:ServiceListOffering regulatorListFlag="false">

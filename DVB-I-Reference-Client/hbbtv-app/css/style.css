@@ -1,6 +1,3 @@
-/* DVB-I HbbTV Accessibility App — TV fullscreen layout
-   No CSS variables: HbbTV 1.4 does not support var() */
-
 * {
   box-sizing: border-box;
   margin: 0;
@@ -16,15 +13,10 @@ html, body {
   color: #e8e8e8;
 }
 
-/* Overlay mode: the main picture is being presented by someone else — an HbbTV
-   terminal, or a DVB-I client hosting this app in a frame — so the page must
-   not paint a background over it. Applied by app.js once it knows it is not the
-   one playing the main video. */
 html.overlay-mode, body.overlay-mode {
   background: transparent;
 }
 
-/* ── Boot status ─────────────────────────────────────────────────────────── */
 #dvbi-boot-status {
   position: fixed;
   top: 0;
@@ -38,7 +30,6 @@ html.overlay-mode, body.overlay-mode {
   display: block;
 }
 
-/* ── Main video: fullscreen ──────────────────────────────────────────────── */
 #mainVideo {
   position: fixed;
   top: 0;
@@ -49,14 +40,14 @@ html.overlay-mode, body.overlay-mode {
   z-index: 0;
 }
 
-/* ── Interpreter overlay ─────────────────────────────────────────────────── */
 .interpreter-overlay {
   position: fixed;
   z-index: 10;
-  border: 3px solid rgba(255, 255, 255, 0.7);
-  border-radius: 4px;
   overflow: hidden;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.8);
+}
+
+.interpreter-overlay.grey-bg {
+  background: #808080;
 }
 
 .interpreter-overlay.hidden {
@@ -77,26 +68,30 @@ html.overlay-mode, body.overlay-mode {
   height: 100%;
 }
 
-/* Position modifiers — 3×3 grid */
-.interpreter-position-tl { top: 2%;  left: 2%; }
-.interpreter-position-tc { top: 2%;  left: 50%; -webkit-transform: translateX(-50%); transform: translateX(-50%); }
-.interpreter-position-tr { top: 2%;  right: 2%; }
-.interpreter-position-ml { top: 50%; left: 2%;  -webkit-transform: translateY(-50%); transform: translateY(-50%); }
+.interpreter-position-tl { top: 0;  left: 0; }
+.interpreter-position-tc { top: 0;  left: 50%; -webkit-transform: translateX(-50%); transform: translateX(-50%); }
+.interpreter-position-tr { top: 0;  right: 0; }
+.interpreter-position-ml { top: 50%; left: 0;  -webkit-transform: translateY(-50%); transform: translateY(-50%); }
 .interpreter-position-mc { top: 50%; left: 50%; -webkit-transform: translate(-50%, -50%); transform: translate(-50%, -50%); }
-.interpreter-position-mr { top: 50%; right: 2%; -webkit-transform: translateY(-50%); transform: translateY(-50%); }
-.interpreter-position-bl { bottom: 2%; left: 2%; }
-.interpreter-position-bc { bottom: 2%; left: 50%; -webkit-transform: translateX(-50%); transform: translateX(-50%); }
-.interpreter-position-br { bottom: 2%; right: 2%; }
+.interpreter-position-mr { top: 50%; right: 0; -webkit-transform: translateY(-50%); transform: translateY(-50%); }
+.interpreter-position-bl { bottom: 0; left: 0; }
+.interpreter-position-bc { bottom: 0; left: 50%; -webkit-transform: translateX(-50%); transform: translateX(-50%); }
+.interpreter-position-br { bottom: 0; right: 0; }
 
-/* Size: set via inline style from app.js (7 steps) */
+.grey-frame {
+  position: fixed;
+  z-index: 1;
+  display: none;
+  background: #808080;
+}
 
-/* ── Toast notification ──────────────────────────────────────────────────── */
+#greyRight  { top: 0; right: 0; bottom: 0; }
+#greyBottom { left: 0; bottom: 0; }
+
 #toast {
   position: fixed;
-  top: 8%;
-  left: 50%;
-  -webkit-transform: translateX(-50%);
-  transform: translateX(-50%);
+  bottom: 2.6rem;
+  right: 1.5rem;
   z-index: 200;
   background: rgba(0, 0, 0, 0.82);
   color: #fff;
@@ -109,13 +104,11 @@ html.overlay-mode, body.overlay-mode {
   white-space: nowrap;
 }
 
-/* ── Hint bar ────────────────────────────────────────────────────────────── */
-/* ── Subtitles ───────────────────────────────────────────────────────────── */
-/* Drawn by the application, not the terminal. Geometry mirrors the region in
-   subtitles/main_slv.xml so the two renderings agree: the title-safe area with
-   text sitting on its bottom edge. Sits above the video and below the
-   interpreter overlay, and clear of the hint bar along the very bottom.
-   Hidden until a cue is active — app.js sets display. */
+#toast.toast-left {
+  right: auto;
+  left: 1.5rem;
+}
+
 #subtitles {
   position: fixed;
   left: 10%;
@@ -125,14 +118,9 @@ html.overlay-mode, body.overlay-mode {
   display: none;
   text-align: center;
   font-family: Arial, Helvetica, sans-serif;
-  /* Relative to the viewport, so the text keeps its proportion of the picture
-     on a 720p panel as on a 1080p one. ~3.2% of width is about 61px at 1920,
-     which is the size broadcast subtitles are normally authored at. */
   font-size: 3.2vw;
   line-height: 1.25;
   color: #FFFFFF;
-  /* Per-line box rather than one block behind the whole cue: short second lines
-     would otherwise sit on a full-width band. */
   text-shadow: 0 0 6px #000, 0 0 6px #000, 0 0 6px #000;
 }
 
@@ -141,18 +129,45 @@ html.overlay-mode, body.overlay-mode {
   bottom: 0;
   left: 0;
   right: 0;
-  z-index: 5;
+  z-index: 11;
   background: rgba(0, 0, 0, 0.55);
   color: rgba(255, 255, 255, 0.65);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   padding: 0.4rem 1rem;
   text-align: center;
+  opacity: 1;
+  -webkit-transition: opacity 0.6s;
+  transition: opacity 0.6s;
 }
 
-/* ── Error overlay ───────────────────────────────────────────────────────── */
+#hintBar.faded {
+  opacity: 0;
+}
+
+#hintBar .key {
+  display: inline-block;
+  width: 1.4em;
+  height: 0.9em;
+  vertical-align: -0.1em;
+  border-radius: 2px;
+}
+#hintBar .key-red    { background: #e01b1b; }
+#hintBar .key-green  { background: #1fa83a; }
+#hintBar .key-yellow { background: #f0c419; }
+#hintBar .key-blue   { background: #1f6fe0; }
+
+#hintBar.signer-off #hintSignerKeys {
+  display: none;
+}
+
+#hintBar.pinned,
+#hintBar.pinned.faded {
+  opacity: 1;
+}
+
 #errorOverlay {
   position: fixed;
-  bottom: 2.5rem;
+  top: 2rem;
   left: 2rem;
   right: 2rem;
   z-index: 200;
@@ -166,7 +181,6 @@ html.overlay-mode, body.overlay-mode {
   display: none;
 }
 
-/* ── Subtitle cue styling ────────────────────────────────────────────────── */
 video::cue {
   background: rgba(0, 0, 0, 0.75);
   color: #fff;

@@ -1,19 +1,4 @@
 #!/bin/sh
-# Bring a deployment host to the latest commit, in one step.
-#
-#   sh deploy/update              update to origin's latest commit
-#   sh deploy/update --source     also re-encode the sources and repackage the loop
-#   sh deploy/update --no-pull    re-apply the current commit without fetching
-#
-# Doing this by hand goes wrong in a specific, repeatable way: the configuration
-# script rewrites five tracked files with the host's own address, so every
-# subsequent `git pull` aborts on local changes. Discarding those rewrites before
-# pulling and re-applying them after is the whole trick, and the order matters.
-#
-# Everything the host generates is derived — configuration, service list URLs,
-# DASH segments, the muxed source — so this script recreates rather than merges.
-# Local edits to tracked files are discarded; git is the source of truth. Files
-# git does not track are left alone.
 set -e
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -36,16 +21,24 @@ fi
 
 say() { printf '\n\033[1m== %s\033[0m\n' "$1"; }
 
-# Prompt for sudo once up front rather than midway through a half-finished update.
+SOURCES="normal tvmaribor prenosniki napoved bucko"
+MISSING=""
+for s in $SOURCES; do
+  [ -f "video_content/source_$s.mp4" ] || MISSING="$MISSING video_content/source_$s.mp4"
+done
+if [ -n "$MISSING" ]; then
+  echo "Missing:$MISSING" >&2
+  echo "Copy them from the machine that built them, e.g.:" >&2
+  echo "  scp$MISSING HOST:$ROOT/video_content/" >&2
+  echo "Nothing has been changed." >&2
+  exit 1
+fi
+
 sudo -v
 
-# ── 1. Stop the encoder ───────────────────────────────────────────────────────
-# Before touching the working tree: the unit runs a script out of it, and a
-# restart is needed anyway for any change to reach the running process.
 say "Stopping publisher"
 sudo systemctl stop dvbi-publisher || true
 
-# ── 2. Discard generated rewrites, then update ────────────────────────────────
 say "Updating working tree"
 DIRTY=$(git status --porcelain --untracked-files=no)
 if [ -n "$DIRTY" ]; then
@@ -70,10 +63,6 @@ fi
 
 changed() { [ -n "$CHANGED" ] && echo "$CHANGED" | grep -q "^$1"; }
 
-# ── 3. Re-apply this host's address ───────────────────────────────────────────
-# Rewrites configuration.php/js and the URLs in the service list, the app and the
-# XML AIT. Its attempt to bind port 9080 fails because nginx holds it; that is
-# expected and not a failure of the rewrite, which has already happened.
 say "Configuring install location"
 node scripts/start-dvbi-reference-client.js || true
 
@@ -81,19 +70,16 @@ BASE=$(sed -n 's/.*\$install_location *= *"\([^"]*\)".*/\1/p' \
         DVB-I-Reference-Client/backend/configuration.php)
 [ -n "$BASE" ] || { echo "Could not read install_location" >&2; exit 1; }
 
-# ── 4. Rebuild the loop when its inputs moved ─────────────────────────────────
-# Two costs, kept apart. prerender re-encodes both 248 s sources and takes
-# minutes; package-loop only cuts existing files and takes seconds. A change to
-# the subtitles needs the second but not the first, so asking for the whole
-# thing whenever a cue moves would make editing subtitles needlessly expensive.
 REPACKAGE=no
 
-if [ ! -f video_content/source_combined.mp4 ] || [ ! -f video_content/source_burned.mp4 ]; then
-  echo "pre-rendered sources missing — building them"
-  REBUILD_SOURCE=yes
-elif changed "ffmpeg_stream_commands/prerender"; then
-  echo "prerender changed — re-encoding the sources"
-  REBUILD_SOURCE=yes
+if changed "ffmpeg_stream_commands/prerender"; then
+  if [ -d video_content/urejeno ] && [ -f video_content/rtv_mb.mp4 ]; then
+    echo "prerender changed — re-encoding the sources"
+    REBUILD_SOURCE=yes
+  else
+    echo "prerender changed, but its inputs are not on this host: rebuild the"
+    echo "sources where they are and copy them here, then run with --no-pull."
+  fi
 fi
 
 if changed "ffmpeg_stream_commands/package-loop" \
@@ -112,10 +98,16 @@ if [ "$REPACKAGE" = yes ] || [ ! -f DVB-I-Reference-Client/stream/loop/loop.json
   sh ffmpeg_stream_commands/package-loop
 fi
 
-# ── 5. Host-level units, only when their committed form changed ───────────────
 if changed "deploy/nginx-dvbi.conf"; then
   say "Installing nginx site"
   sudo cp deploy/nginx-dvbi.conf /etc/nginx/sites-available/dvbi
+  sudo nginx -t
+  sudo systemctl reload nginx
+fi
+
+if changed "deploy/dvbi-locations.conf"; then
+  say "Installing nginx location rules"
+  sudo cp deploy/dvbi-locations.conf /etc/nginx/snippets/dvbi-locations.conf
   sudo nginx -t
   sudo systemctl reload nginx
 fi
@@ -126,15 +118,9 @@ if changed "deploy/dvbi-publisher.service"; then
   sudo systemctl daemon-reload
 fi
 
-# ── 6. Check the loop exists ──────────────────────────────────────────────────
-# Nothing is encoded or packaged at serving time, so the segments have to be
-# there before the publisher can start. Building them is deliberately not done
-# here: prerender re-encodes the source and takes minutes, and it needs
-# video_content, which a deployment host may not even carry.
-#
-# Clearing stale segments used to be a step here. The publisher deletes anything
-# the manifest does not currently promise, every four seconds, so leftovers from
-# the encoders it replaced are swept on its first run.
+say "Preparing test-session data"
+sudo install -d -o "$(id -un)" -g www-data -m 2775 test-data test-data/sessions
+
 if [ ! -f DVB-I-Reference-Client/stream/loop/loop.json ]; then
   echo "No packaged loop found. Build it once with:" >&2
   echo "  sh ffmpeg_stream_commands/prerender" >&2
@@ -142,7 +128,6 @@ if [ ! -f DVB-I-Reference-Client/stream/loop/loop.json ]; then
   exit 1
 fi
 
-# ── 7. Start and verify ───────────────────────────────────────────────────────
 say "Starting publisher"
 sudo systemctl start dvbi-publisher
 sleep 15
@@ -150,9 +135,6 @@ sleep 15
 say "Verifying"
 FAIL=0
 
-# A failed curl and a served-but-wrong document both have to read as a failure,
-# so count into a variable whose fallback is a single 0 — `grep -c ... || echo 0`
-# emits two lines when grep matches nothing, and the comparison then never fits.
 count() {
   _n=$(curl -sf --max-time 10 "$1" | grep -cF -e "$2") || _n=0
   echo "$_n"
@@ -167,53 +149,32 @@ check() {
   fi
 }
 
-MPD="$BASE/stream/live/combined/stream.mpd"
-ROLES=$(curl -sf --max-time 10 "$MPD" | grep -cE 'value="(main|sign)"') || ROLES=0
-check "MPD declares both main and sign roles" "$ROLES" 2
+for ch in normal tvmaribor; do
+  LIVE=$(curl -sf --max-time 10 "$BASE/stream/live/$ch/stream.mpd" | grep -cF 'type="dynamic"') || LIVE=0
+  check "$ch is live" "$LIVE" 1
+done
 
-# The burnt-in channel comes out of the same encoder now, so a manifest here is
-# also the evidence that the second output survived the restart. Counting the
-# type rather than fetching a segment keeps this cheap.
-BURNED=$(curl -sf --max-time 10 "$BASE/stream/live/burned/stream.mpd" | grep -cF 'type="dynamic"') || BURNED=0
-check "burnt-in channel is live" "$BURNED" 1
+for ch in prenosniki napoved bucko; do
+  ROLES=$(curl -sf --max-time 10 "$BASE/stream/live/$ch/stream.mpd" | grep -cE 'value="(main|sign)"') || ROLES=0
+  check "$ch declares both main and sign roles" "$ROLES" 2
+done
+
+check "test-session state is served" "$(count "$BASE/test/state.php" '"counter"')" 1
 
 LIST="$BASE/backend/servicelists/thesis.xml"
 
-# Match the opening tags, not the bare word: the word also occurs in closing
-# tags and in the file's own comments, so counting it measured the prose as much
-# as the markup and moved whenever either was edited.
-check "service list declares signing three times" \
-      "$(count "$LIST" "<tva:SigningAttributes>")" 3
+check "service list declares signing seven times" \
+      "$(count "$LIST" "<tva:SigningAttributes>")" 7
 
-# Instance-level, inside ContentAttributes: now all three channels. Signing is
-# on 3 and 4 only, but subtitles are on every service, so every ServiceInstance
-# carries one of these blocks. This is what a client reads when matching a
-# viewer's accessibility preferences against service instances (A185r1 clauses
-# 5.1.1 and 5.2.1). Losing it on channel 3 is invisible in the client's own UI
-# but ranks the burnt-in rendition above the switchable one, which is the wrong
-# way round and was the bug this check exists to catch.
 check "accessibility declared on the service instances" \
-      "$(count "$LIST" "<AccessibilityAttributes>")" 3
+      "$(count "$LIST" "<AccessibilityAttributes>")" 4
 
-# Every service carries the same EBU-TT-D track: channels 2 and 3 share one MPD
-# and package-loop cuts the burnt-in channel from the same cues. Declaring it on
-# all three is what keeps them comparable — if subtitles were announced on some
-# services and not others, a difference between channels 3 and 4 could be the
-# subtitles rather than the signer, which is the comparison this project exists
-# to make. The stream carrying cues is not enough on its own: a client decides
-# what to list, and which service to pick for a viewer who wants subtitles,
-# before it fetches a segment.
-check "service list declares subtitles three times" \
-      "$(count "$LIST" "<tva:SubtitleAttributes>")" 3
+check "service list declares subtitles once" \
+      "$(count "$LIST" "<tva:SubtitleAttributes>")" 1
 
-# Application-level, inside RelatedMaterial: channel 3 only. Describes what the
-# linked application provides, and carries the AppInformation that has no
-# meaning for a media component.
 check "signing declared for the linked application" \
-      "$(count "$LIST" "<tva:AccessibilityAttributes>")" 1
+      "$(count "$LIST" "<tva:AccessibilityAttributes>")" 3
 
-# Without this the client is a touch UI again and a television cannot reach the
-# first-run dialog, let alone change service.
 check "player loads the remote-control layer" \
       "$(count "$BASE/frontend/android/player.html" "js/remote.js")" 1
 

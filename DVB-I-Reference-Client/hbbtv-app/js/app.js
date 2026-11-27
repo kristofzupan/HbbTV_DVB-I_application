@@ -1,35 +1,13 @@
-/**
- * DVB-I Accessibility app: dual video PiP with TV remote navigation.
- *
- * Streams arrive via DVB-I URL params: ?main=<dash-url>&interpreter=<dash-url>
- *
- * Decoder modes (auto-selected):
- *   native      — both streams via dash.js → <video> (hardware decoder)
- *   webcodecs   — interpreter via WebCodecs API (hardware-accelerated)
- *   video-canvas — interpreter via hidden <video> → canvas RAF copy
- *   canvas      — interpreter via Broadway WASM → canvas
- *
- * TV remote keys:
- *   OK (13)       — show controls / confirm selection
- *   UP (38)       — previous control row
- *   DOWN (40)     — next control row
- *   LEFT (37)     — previous option in row
- *   RIGHT (39)    — next option in row
- *   BACK (461/27) — close controls
- *   RED (403)     — toggle interpreter on/off instantly
- */
 (function () {
   'use strict';
 
-  // ── Elements ───────────────────────────────────────────────────────────────
   var mainVideo         = document.getElementById('mainVideo');
   var interpreterVideo  = document.getElementById('interpreterVideo');
   var interpreterCanvas = document.getElementById('interpreterCanvas');
   var subtitleEl        = document.getElementById('subtitles');
   var overlay           = document.getElementById('interpreterOverlay');
 
-  // ── Decoder state ──────────────────────────────────────────────────────────
-  var decoderMode           = 'canvas'; // Broadway WASM default
+  var decoderMode           = 'canvas';
   var wasmDecoder           = null;
   var videoCanvasRafId      = null;
   var mainDashPlayer        = null;
@@ -37,20 +15,12 @@
   var currentMainUrl        = '';
   var currentInterpreterUrl = '';
   var interpreterOnlyMode   = false;
-  // True once the terminal's own presentation is driving the main picture, in
-  // which case the app neither plays nor has a clock for it.
   var terminalPresentsMain  = false;
-  // True only when this application is itself playing the main picture, which
-  // is a browser-only situation. Set once per initSources(); everything that
-  // waits on the main video reads it through noMainToAwait() rather than
-  // re-deriving the condition, so no path can decline to start a player and
-  // still leave the decoder waiting for a 'playing' event that cannot arrive.
+  var mediaSync             = null;
   var appPresentsMain       = false;
 
-  // ── UI state ───────────────────────────────────────────────────────────────
   var interpreterVisible = true;
 
-  // Position grid: [row][col] — 3 rows × 3 cols
   var POS_GRID = [
     ['tl', 'tc', 'tr'],
     ['ml', 'mc', 'mr'],
@@ -61,28 +31,41 @@
     ml: 'Sredina levo', mc: 'Sredina',         mr: 'Sredina desno',
     bl: 'Spodaj levo',  bc: 'Spodaj sredina',  br: 'Spodaj desno'
   };
-  // Top right by default. The bottom of the screen belongs to subtitles: they
-  // are authored in the conventional bottom region, a terminal renders them
-  // with no knowledge of this overlay, and nothing in DVB-I or HbbTV lets the
-  // two negotiate the space. The overlay is the part under our control, so it
-  // is the part that moves. The viewer can still put it anywhere.
-  var posRow = 0; // top
-  var posCol = 2; // right  (default: tr)
+  var posRow = 2;
+  var posCol = 2;
 
-  // 7 size steps — widths only (vw); height computed from detected video ratio
-  var SIZE_WIDTHS    = [10, 15, 20, 27, 35, 44, 55];
+  var SIZE_WIDTHS    = [10, 15, 20, 27, 35, 44, 50];
   var DEFAULT_SIZE_IDX = 3;
   var sizeIdx        = DEFAULT_SIZE_IDX;
-  var videoRatio     = 3 / 4; // default 4:3; updated from stream on first frame
+  var videoRatio     = 3 / 4;
+
+  var LAYOUT_TRANSPARENT = 0;
+  var LAYOUT_GREY        = 1;
+  var LAYOUT_OVERLAP     = 2;
+  var LAYOUT_SIDE        = 3;
+  var LAYOUT_LABELS = ['Prosojno ozadje', 'Sivo ozadje', 'Tolmač čez sliko', 'Tolmač ob sliki'];
+  var layoutMode    = LAYOUT_TRANSPARENT;
+
+  var OVERLAP_STEPS = [
+    { main: 90, signer: 0.60 },
+    { main: 87, signer: 0.70 },
+    { main: 84, signer: 0.80 },
+    { main: 81, signer: 0.90 },
+    { main: 78, signer: 1.00 }
+  ];
+  var SIDE_STEPS    = [80, 74, 68, 62, 56];
+  var splitIdx      = 2;
+  var MAIN_RATIO    = 9 / 16;
 
   var toastTimer = null;
+  var interpreterLoading = false;
+  var loadingPoll = null;
+  var LOADING_MSG = 'Nalaganje tolmača...';
+  var hintTimer  = null;
+  var HINT_SHOW_MS = 30000;
 
-  // Seconds behind the live edge to hold the main picture, so the interpreter
-  // decoder has whole segments available at the time the main video is showing.
-  // Three 4 s segments; must stay well inside the manifest's 60 s window.
   var LIVE_DELAY_SEC = 12;
 
-  // ── URL params ─────────────────────────────────────────────────────────────
   function getUrlParams() {
     var params = {};
     var q = window.location.search ? window.location.search.slice(1) : '';
@@ -97,7 +80,6 @@
     return params;
   }
 
-  // ── dash.js helpers ────────────────────────────────────────────────────────
   function createDashPlayer(videoEl, url, autoplay) {
     if (typeof dashjs === 'undefined') {
       videoEl.src = url;
@@ -110,13 +92,6 @@
       showError('DASH error: ' + msg);
     });
 
-    // Hold playback further behind the live edge than dash.js would choose on
-    // its own. The software-decoded interpreter can only present segments that
-    // are already written to the manifest, so if the main picture plays closer
-    // to live than that, the overlay can never reach it — no amount of clock
-    // correction helps. A few seconds of extra latency in exchange for an
-    // interpreter that is actually aligned is the right trade here.
-    // (dash.js 4.4+ nests this under `delay`; the flat key covers older builds.)
     try {
       p.updateSettings({ streaming: {
         delay:     { liveDelay: LIVE_DELAY_SEC },
@@ -133,16 +108,9 @@
     return null;
   }
 
-  // ── Source initialisation ──────────────────────────────────────────────────
   function initSources() {
     var urlParams = getUrlParams();
-    // Both defaults are the combined manifest, not the separate main/interpreter
-    // ones: those stopped being published when the two tracks moved into a single
-    // encoder, and a default that 404s costs nothing at load time — it fails
-    // inside the decoder's retry loop, which reports to the console and leaves an
-    // empty overlay on screen. dash.js takes the main role from this manifest and
-    // the software decoder takes the sign role, so they also share a timeline.
-    var COMBINED_MPD = 'http://localhost:9080/stream/live/combined/stream.mpd';
+    var COMBINED_MPD = 'http://localhost:9080/stream/live/prenosniki/stream.mpd';
     var mainUrl   = urlParams.main        || COMBINED_MPD;
     var interpUrl = urlParams.interpreter || COMBINED_MPD;
 
@@ -154,43 +122,22 @@
     interpreterDashPlayer = destroyDashPlayer(interpreterDashPlayer);
     if (wasmDecoder) { wasmDecoder.stop(); wasmDecoder = null; }
 
-    // On a terminal, the main picture is the terminal's to present and ours to
-    // leave alone. Binding to the current channel keeps that presentation alive;
-    // starting our own player instead would suspend it.
     terminalPresentsMain = HbbTV.bindToCurrentChannel();
     if (terminalPresentsMain) {
       console.log('[App] bound to the terminal\'s channel — overlay only');
+      if (!mediaSync) {
+        HbbTV.startTimelineClock(currentInterpreterUrl, function (ms) { mediaSync = ms; });
+      }
     }
 
-    // Presenting the main picture is a browser affordance, never a terminal one.
-    // The two flags above cover every path we launch deliberately — the AIT
-    // passes ?interpreter= with no ?main=, and a bound terminal sets
-    // terminalPresentsMain — but both are conditions that happen to hold rather
-    // than guarantees. bindToCurrentChannel() returns false whenever a terminal
-    // refuses or throws, which is what an older one does, and the parameterless
-    // default above is the full-screen combined manifest. Those two together
-    // would start broadband video with no realized video/broadcast object, and
-    // the terminal would suspend the channel (TS 102 796 clause A.2.1) —
-    // blacking out the programme this overlay exists to accompany. Refusing on
-    // any HbbTV stack makes that structurally impossible rather than unlikely.
-    // ?main= is an explicit instruction to present the picture, and the only
-    // thing that lifts the refusal above. An emulator carries an HbbTV user
-    // agent while nothing is actually presenting anything, so without this the
-    // app correctly declines to play and leaves a blank screen with no clock —
-    // safe on a television, useless on a desk. Launched from the AIT there is
-    // never a ?main=, so a real terminal still cannot reach this path.
     appPresentsMain = !interpreterOnlyMode && !terminalPresentsMain &&
                       (!HbbTV.isHbbTV || !!urlParams.main);
     if (appPresentsMain) {
       mainDashPlayer = createDashPlayer(mainVideo, currentMainUrl, true);
     } else {
-      // Nothing will ever be decoded into it, and at z-index 0 over the full
-      // screen an empty video element is an opaque black rectangle sitting on
-      // top of whatever is presenting the picture.
       mainVideo.style.display = 'none';
     }
 
-    // Someone else is presenting the picture, so stop painting over it.
     var overlayOnly = noMainToAwait();
     document.documentElement.classList.toggle('overlay-mode', overlayOnly);
     document.body.classList.toggle('overlay-mode', overlayOnly);
@@ -199,15 +146,6 @@
     clearError();
   }
 
-  // ── Decoder mode ───────────────────────────────────────────────────────────
-
-  // The interpreter decoder normally waits for the main video to start, so the
-  // two come up together. When the app is not playing the main picture — the
-  // terminal is, we were launched interpreter-only, or we are on an HbbTV stack
-  // at all — there is no such event, and waiting for it would mean the overlay
-  // never appears. The three places in applyDecoderMode() that would otherwise
-  // start a main player of their own are gated on this too, so the refusal
-  // above holds for every decoder path rather than only the initial one.
   function noMainToAwait() {
     return !appPresentsMain;
   }
@@ -216,11 +154,6 @@
     if (videoCanvasRafId) { cancelAnimationFrame(videoCanvasRafId); videoCanvasRafId = null; }
   }
 
-  // Draw a source into the canvas preserving aspect ratio (letterbox/pillarbox).
-  // WasmDecoder has its own copy of this for its YUV output; keeping one here
-  // rather than reaching into that module's scope is what stops the two from
-  // drifting apart — and reaching into it was a ReferenceError, since only the
-  // decoder constructor is exported.
   function drawContain(ctx, src, srcW, srcH, dstW, dstH) {
     var scale = Math.min(dstW / srcW, dstH / srcH);
     var w = srcW * scale, h = srcH * scale;
@@ -230,6 +163,7 @@
 
   function applyDecoderMode(mode) {
     decoderMode = mode;
+    setInterpreterLoading(interpreterVisible && !!currentInterpreterUrl);
 
     interpreterDashPlayer = destroyDashPlayer(interpreterDashPlayer);
     if (wasmDecoder) { wasmDecoder.stop(); wasmDecoder = null; }
@@ -250,12 +184,15 @@
       var startWC = function () {
         mainVideo.removeEventListener('playing', startWC);
         if (decoderMode !== 'webcodecs') { return; }
-        if (currentInterpreterUrl && !wasmDecoder) {
-          wasmDecoder = new WebCodecsDecoder(interpreterCanvas, masterClock);
-          wasmDecoder.onFirstFrame = function (w, h) { adaptToVideoRatio(w, h); };
-          wasmDecoder.onError = showError;
-          wasmDecoder.start(currentInterpreterUrl);
-        }
+        whenMasterReady(function () {
+          if (decoderMode !== 'webcodecs') { return; }
+          if (currentInterpreterUrl && !wasmDecoder) {
+            wasmDecoder = new WebCodecsDecoder(interpreterCanvas, masterClock);
+            wasmDecoder.onFirstFrame = function (w, h) { adaptToVideoRatio(w, h); };
+            wasmDecoder.onError = onInterpreterError;
+            wasmDecoder.start(currentInterpreterUrl);
+          }
+        });
       };
       if (noMainToAwait() || !mainVideo.paused) { startWC(); }
       else { mainVideo.addEventListener('playing', startWC); }
@@ -283,8 +220,6 @@
           if (decoderMode !== 'video-canvas') { return; }
           if (interpreterVideo.readyState >= 2 && interpreterVideo.videoWidth > 0) {
             clearTimeout(fallbackT);
-            // Canvas dimensions are re-read each frame: adaptToVideoRatio resizes
-            // the buffer once the stream's real dimensions are known.
             drawContain(ctx, interpreterVideo,
               interpreterVideo.videoWidth, interpreterVideo.videoHeight,
               interpreterCanvas.width, interpreterCanvas.height);
@@ -309,19 +244,21 @@
       var startCanvas = function () {
         mainVideo.removeEventListener('playing', startCanvas);
         if (decoderMode !== 'canvas') { return; }
-        if (currentInterpreterUrl && !wasmDecoder) {
-          wasmDecoder = new WasmDecoder(interpreterCanvas, masterClock);
-          wasmDecoder.onFirstFrame = function (w, h) { adaptToVideoRatio(w, h); };
-          wasmDecoder.onError = showError;
-          wasmDecoder.start(currentInterpreterUrl);
-        }
+        whenMasterReady(function () {
+          if (decoderMode !== 'canvas') { return; }
+          if (currentInterpreterUrl && !wasmDecoder) {
+            wasmDecoder = new WasmDecoder(interpreterCanvas, masterClock);
+            wasmDecoder.onFirstFrame = function (w, h) { adaptToVideoRatio(w, h); };
+            wasmDecoder.onError = onInterpreterError;
+            wasmDecoder.start(currentInterpreterUrl);
+          }
+        });
       };
       if (noMainToAwait() || !mainVideo.paused) { startCanvas(); }
       else { mainVideo.addEventListener('playing', startCanvas); }
       return;
     }
 
-    // native
     interpreterCanvas.style.display = 'none';
     interpreterVideo.style.display  = 'block';
 
@@ -336,27 +273,9 @@
     else { mainVideo.addEventListener('playing', startNative); }
   }
 
-  // ── Master clock ───────────────────────────────────────────────────────────
-  // Position of the main video on the manifest's period timeline. When main and
-  // interpreter come from one manifest they share that timeline, so this is what
-  // the software decoder presents the signer against — the app-side equivalent
-  // of what MediaSynchroniser does on an HbbTV 2.0.4 terminal.
-  // Returns 0 when there is no main video to follow (interpreter-only mode, or
-  // playback has not started), which tells the decoder to pace itself instead.
-  // Returns 0 when there is nothing to follow: interpreter-only mode, playback
-  // not started, or the terminal presenting the main picture itself — a
-  // video/broadcast object exposes no presentation timeline, which is the gap
-  // MediaSynchroniser is meant to fill. The decoder then paces itself.
-  // When the app runs as an overlay inside a DVB-I client, the main picture is a
-  // video element in the hosting page. Same-origin embedding lets the overlay
-  // read that element's position directly — the browser-side equivalent of what
-  // MediaSynchroniser provides on a terminal, which has no such reach.
   var hostVideo = null;
   var warnedNoHostClock = false;
 
-  // Losing the host clock is not fatal — the decoder falls back to pacing itself
-  // against the live edge — but it silently costs synchronisation, which looks
-  // like a decoder fault rather than a broken bridge. Say it once, out loud.
   function warnNoHostClock(reason) {
     if (warnedNoHostClock) { return; }
     warnedNoHostClock = true;
@@ -367,15 +286,13 @@
   function findHostVideo() {
     if (window.parent === window) { return null; }
     try {
-      var doc = window.parent.document;   // throws when cross-origin
+      var doc = window.parent.document;
       var v = doc.getElementById('video') ||
               doc.getElementsByTagName('video')[0] || null;
       if (v) { console.log('[App] host video clock acquired'); }
       else   { warnNoHostClock('host page has no video element'); }
       return v;
     } catch (e) {
-      // Hosted cross-origin: no clock reachable from here. Usually means the AIT
-      // URLBase and the page the client was opened from are different hosts.
       warnNoHostClock('host page is cross-origin: ' + e.message);
       return null;
     }
@@ -394,16 +311,11 @@
   }
 
   function masterClock() {
-    // A terminal is presenting: video/broadcast exposes no presentation
-    // timeline, so there is nothing to follow until MediaSynchroniser exists.
-    if (terminalPresentsMain) { return 0; }
-    // We are playing the main picture ourselves.
+    if (terminalPresentsMain) { return mediaSync ? (mediaSync.currentTime || 0) : 0; }
     if (!interpreterOnlyMode && mainVideo) { return mainVideo.currentTime || 0; }
-    // Overlay inside a same-origin host: follow the host's picture.
     return hostVideoTime();
   }
 
-  // ── Safe play ──────────────────────────────────────────────────────────────
   function safePlay(videoEl, onSuccess, onError) {
     var result;
     try { result = videoEl.play(); } catch (e) { if (onError) { onError(e); } return; }
@@ -414,51 +326,233 @@
     }
   }
 
-  // ── Toast ──────────────────────────────────────────────────────────────────
   function showToast(msg) {
     var el = document.getElementById('toast');
     if (!el) { return; }
     el.textContent = msg;
     el.style.display = 'block';
+    placeToast(el);
     if (toastTimer) { clearTimeout(toastTimer); }
     toastTimer = setTimeout(function () {
-      el.style.display = 'none';
       toastTimer = null;
+      if (interpreterLoading) { el.textContent = LOADING_MSG; placeToast(el); }
+      else { el.style.display = 'none'; }
     }, 1500);
   }
 
-  // ── Overlay position ───────────────────────────────────────────────────────
-  function applyPosition() {
-    var pos = POS_GRID[posRow][posCol];
+  function placeToast(el) {
+    el.classList.remove('toast-left');
+    if (!interpreterVisible) { return; }
+    var t = el.getBoundingClientRect();
+    var o = overlay.getBoundingClientRect();
+    var overlaps = t.left < o.right && t.right > o.left &&
+                   t.top < o.bottom && t.bottom > o.top;
+    if (overlaps) { el.classList.add('toast-left'); }
+  }
+
+  function setInterpreterLoading(on) {
+    interpreterLoading = on;
+    if (loadingPoll) { clearInterval(loadingPoll); loadingPoll = null; }
+    if (on) {
+      loadingPoll = setInterval(function () {
+        var stats = (wasmDecoder && typeof wasmDecoder.getStats === 'function')
+          ? wasmDecoder.getStats() : null;
+        if (stats && stats.drawn > 0) { setInterpreterLoading(false); }
+      }, 100);
+    }
+    if (toastTimer) { return; }
+    var el = document.getElementById('toast');
+    if (!el) { return; }
+    if (on) { el.textContent = LOADING_MSG; el.style.display = 'block'; placeToast(el); }
+    else { el.style.display = 'none'; }
+  }
+
+  function onInterpreterError(msg) {
+    setInterpreterLoading(false);
+    showError(msg);
+  }
+
+  function showHintBar() {
+    var el = document.getElementById('hintBar');
+    if (!el) { return; }
+    el.classList.remove('faded');
+    if (hintTimer) { clearTimeout(hintTimer); }
+    hintTimer = setTimeout(function () {
+      el.classList.add('faded');
+      hintTimer = null;
+    }, HINT_SHOW_MS);
+  }
+
+  function setPositionClass(pos) {
     overlay.classList.remove(
       'interpreter-position-tl', 'interpreter-position-tc', 'interpreter-position-tr',
       'interpreter-position-ml', 'interpreter-position-mc', 'interpreter-position-mr',
       'interpreter-position-bl', 'interpreter-position-bc', 'interpreter-position-br'
     );
     overlay.classList.add('interpreter-position-' + pos);
-    showToast(POS_LABELS[pos]);
+    var toast = document.getElementById('toast');
+    if (toast && toast.style.display === 'block') { placeToast(toast); }
   }
 
-  // ── Overlay size ───────────────────────────────────────────────────────────
-  function applySize() {
+  function applyPosition(announce) {
+    var pos = POS_GRID[posRow][posCol];
+    setPositionClass(pos);
+    if (announce !== false) { showToast(POS_LABELS[pos]); }
+  }
+
+  function applySize(announce) {
+    if (isSplitLayout()) {
+      applySplit();
+      if (announce) { showToast('Razmerje ' + (splitIdx + 1) + ' / ' + SIDE_STEPS.length); }
+      return;
+    }
     var w = SIZE_WIDTHS[sizeIdx];
     overlay.style.width  = w + 'vw';
     overlay.style.height = (w * videoRatio).toFixed(3) + 'vw';
-    showToast('Velikost ' + (sizeIdx + 1) + ' / ' + SIZE_WIDTHS.length);
+    if (announce) { showToast('Velikost ' + (sizeIdx + 1) + ' / ' + SIZE_WIDTHS.length); }
   }
 
-  // Called when actual video dimensions are known (first frame or loadedmetadata)
   function adaptToVideoRatio(srcW, srcH) {
     if (!srcW || !srcH) { return; }
     videoRatio = srcH / srcW;
-    // Resize canvas buffer to match source (drawContain fills it exactly)
     interpreterCanvas.width  = srcW;
     interpreterCanvas.height = srcH;
-    applySize(); // reapply current size with correct ratio
+    applySize();
   }
 
-  // ── Interpreter decoder start / stop ──────────────────────────────────────
+  function isSplitLayout() {
+    return layoutMode === LAYOUT_OVERLAP || layoutMode === LAYOUT_SIDE;
+  }
+
+  function applyLayout() {
+    overlay.classList.toggle('grey-bg', layoutMode === LAYOUT_GREY);
+    if (isSplitLayout()) { setPositionClass('br'); }
+    else { applyPosition(false); }
+    applySize();
+    if (!isSplitLayout()) { applySplit(); }
+    showToast(LAYOUT_LABELS[layoutMode]);
+  }
+
+  function applySplit() {
+    var split = isSplitLayout() && interpreterVisible;
+    var hint = document.getElementById('hintBar');
+    if (hint) { hint.classList.toggle('pinned', split); }
+    if (!split) {
+      setMainRect(null, null);
+      setGreyFrame(null, null);
+      setSubtitleRect(null, null);
+      return;
+    }
+    var sw = window.innerWidth, sh = window.innerHeight;
+    var mainW, sigW, sigH;
+    if (layoutMode === LAYOUT_OVERLAP) {
+      mainW = sw * OVERLAP_STEPS[splitIdx].main / 100;
+      sigH  = sh * OVERLAP_STEPS[splitIdx].signer;
+      sigW  = sigH / videoRatio;
+      if (sigW > sw) { sigW = sw; sigH = sigW * videoRatio; }
+    } else {
+      mainW = sw * SIDE_STEPS[splitIdx] / 100;
+      sigW  = sw - mainW;
+      sigH  = sigW * videoRatio;
+      if (sigH > sh) { sigH = sh; sigW = sigH / videoRatio; }
+    }
+    var mainH = Math.min(mainW * MAIN_RATIO, sh);
+    mainW = Math.round(mainW);
+    mainH = Math.round(mainH);
+    overlay.style.width  = Math.round(sigW) + 'px';
+    overlay.style.height = Math.round(sigH) + 'px';
+    setMainRect(mainW, mainH);
+    setGreyFrame(mainW, mainH);
+    setSubtitleRect(mainW, mainH);
+  }
+
+  window.addEventListener('resize', function () {
+    if (isSplitLayout()) { applySplit(); }
+  });
+
+  function setGreyFrame(w, h) {
+    var right  = document.getElementById('greyRight');
+    var bottom = document.getElementById('greyBottom');
+    if (!right || !bottom) { return; }
+    if (w == null || !(appPresentsMain || terminalPresentsMain)) {
+      right.style.display = bottom.style.display = 'none';
+      return;
+    }
+    right.style.left    = w + 'px';
+    bottom.style.top    = h + 'px';
+    bottom.style.width  = w + 'px';
+    right.style.display = bottom.style.display = 'block';
+  }
+
+  function setMainRect(w, h) {
+    var width  = w == null ? '100%' : w + 'px';
+    var height = h == null ? '100%' : h + 'px';
+    if (appPresentsMain) {
+      mainVideo.style.width  = width;
+      mainVideo.style.height = height;
+    } else if (terminalPresentsMain) {
+      var bc = document.getElementById('broadcastVideo');
+      if (bc) { bc.style.width = width; bc.style.height = height; }
+    } else {
+      setHostVideoRect(w == null ? null : width, height);
+    }
+  }
+
+  var hostVideoCss = null;
+  var hostBoxBg    = null;
+
+  function setHostVideoRect(width, height) {
+    if (!hostVideo || !hostVideo.parentNode) { hostVideo = findHostVideo(); }
+    if (!hostVideo) { return; }
+    var box = hostVideo.parentNode;
+    try {
+      if (width == null) {
+        if (hostVideoCss !== null) { hostVideo.style.cssText = hostVideoCss; hostVideoCss = null; }
+        if (hostBoxBg !== null) { box.style.background = hostBoxBg; hostBoxBg = null; }
+        return;
+      }
+      if (hostVideoCss === null) { hostVideoCss = hostVideo.style.cssText; }
+      if (hostBoxBg === null) { hostBoxBg = box.style.background; }
+      box.style.background = '#808080';
+      hostVideo.style.cssText = hostVideoCss +
+        ';position:fixed;left:0;top:0;max-width:none;max-height:none' +
+        ';width:' + width + ';height:' + height;
+    } catch (e) {
+      console.warn('[App] could not resize the host video:', e && e.message);
+    }
+  }
+
+  function restoreHostVideo() { if (hostVideoCss !== null) { setHostVideoRect(null, null); } }
+  window.addEventListener('pagehide', restoreHostVideo);
+  window.addEventListener('unload', restoreHostVideo);
+
+  function setSubtitleRect(w, h) {
+    if (!subtitleEl) { return; }
+    var s = subtitleEl.style;
+    if (w == null) { s.left = s.right = s.bottom = s.fontSize = ''; return; }
+    s.left     = Math.round(w * 0.1) + 'px';
+    s.right    = Math.round(window.innerWidth - w * 0.9) + 'px';
+    s.bottom   = Math.round(window.innerHeight - h * 0.9) + 'px';
+    s.fontSize = Math.round(w * 0.032) + 'px';
+  }
+
+  var MASTER_WAIT_MS = 5000;
+  var masterWaitGen  = 0;
+
+  function whenMasterReady(fn) {
+    var gen = ++masterWaitGen;
+    var waited = 0;
+    (function check() {
+      if (gen !== masterWaitGen) { return; }
+      if (masterClock() > 0 || waited >= MASTER_WAIT_MS) { fn(); return; }
+      waited += 100;
+      setTimeout(check, 100);
+    })();
+  }
+
   function stopInterpreterDecoder() {
+    masterWaitGen++;
+    setInterpreterLoading(false);
     if (wasmDecoder) { wasmDecoder.stop(); wasmDecoder = null; }
     interpreterDashPlayer = destroyDashPlayer(interpreterDashPlayer);
     stopVideoCanvas();
@@ -468,17 +562,24 @@
   function startInterpreterDecoder() {
     if (!currentInterpreterUrl) { return; }
     stopInterpreterDecoder();
+    setInterpreterLoading(true);
 
     if (decoderMode === 'canvas') {
-      wasmDecoder = new WasmDecoder(interpreterCanvas, masterClock);
-      wasmDecoder.onFirstFrame = function (w, h) { adaptToVideoRatio(w, h); };
-      wasmDecoder.start(currentInterpreterUrl);
+      whenMasterReady(function () {
+        wasmDecoder = new WasmDecoder(interpreterCanvas, masterClock);
+        wasmDecoder.onFirstFrame = function (w, h) { adaptToVideoRatio(w, h); };
+        wasmDecoder.onError = onInterpreterError;
+        wasmDecoder.start(currentInterpreterUrl);
+      });
 
     } else if (decoderMode === 'webcodecs') {
       if (window.WebCodecsDecoder) {
-        wasmDecoder = new WebCodecsDecoder(interpreterCanvas, masterClock);
-        wasmDecoder.onFirstFrame = function (w, h) { adaptToVideoRatio(w, h); };
-        wasmDecoder.start(currentInterpreterUrl);
+        whenMasterReady(function () {
+          wasmDecoder = new WebCodecsDecoder(interpreterCanvas, masterClock);
+          wasmDecoder.onFirstFrame = function (w, h) { adaptToVideoRatio(w, h); };
+          wasmDecoder.onError = onInterpreterError;
+          wasmDecoder.start(currentInterpreterUrl);
+        });
       }
 
     } else if (decoderMode === 'video-canvas') {
@@ -496,12 +597,11 @@
       }
       videoCanvasRafId = requestAnimationFrame(rafLoop);
 
-    } else { // native
+    } else {
       interpreterDashPlayer = createDashPlayer(interpreterVideo, currentInterpreterUrl, true);
     }
   }
 
-  // ── Interpreter toggle ─────────────────────────────────────────────────────
   function toggleInterpreter() {
     interpreterVisible = !interpreterVisible;
     if (interpreterVisible) {
@@ -513,9 +613,11 @@
       stopInterpreterDecoder();
       showToast('Tolmač IZKLOPLJEN');
     }
+    var hint = document.getElementById('hintBar');
+    if (hint) { hint.classList.toggle('signer-off', !interpreterVisible); }
+    if (isSplitLayout()) { applySplit(); }
   }
 
-  // ── Error display ──────────────────────────────────────────────────────────
   function showError(msg) {
     var el = document.getElementById('errorOverlay');
     if (el) { el.textContent = msg; el.style.display = 'block'; }
@@ -526,15 +628,6 @@
     if (el) { el.style.display = 'none'; }
   }
 
-  // ── On-screen diagnostic ───────────────────────────────────────────────────
-  // Every way this application can fail on a television reports to a console no
-  // one can read there. The panel below shows the same facts on the screen, and
-  // takes itself away as soon as frames are reaching the canvas, so a working
-  // deployment looks no different than it did before. Key 0 brings it back.
-  //
-  // "decoded" rising while "drawn" stays at 0 means the decoder is fine and the
-  // render path is not — the single most useful distinction here, and the one
-  // that is invisible from the picture alone.
   var diagEl = null;
   var diagForced = false;
 
@@ -611,17 +704,6 @@
       ? wasmDecoder.getStats() : null;
     sampleFps(stats);
 
-    // Hidden unless the viewer asks for it with 0.
-    //
-    // It used to show itself whenever no frame had been drawn yet, which sounds
-    // conservative but meant it appeared during every start and every channel
-    // change — a green debug panel over the picture, in exactly the configuration
-    // a viewer sees. It also stayed up for as long as anything was wrong, which
-    // is the worst moment to be covering the screen with monospace text.
-    //
-    // Nothing is lost by hiding it: real failures surface on their own through
-    // showError() and #errorOverlay, which is a separate element and unaffected
-    // by this. The panel is a development instrument, so it now behaves like one.
     if (!diagForced) {
       if (diagEl) { diagEl.style.display = 'none'; }
       return;
@@ -639,12 +721,6 @@
     diagEl.style.display = 'block';
 
     var c = capabilities();
-    // Always report the number masterClock() actually returns, whatever the
-    // mode. Labelling interpreter-only as "none" described the launch path
-    // rather than the clock, and hid the one value worth seeing in exactly the
-    // mode the application is launched in from an AIT — where the clock does
-    // exist, read from the hosting page. Subtitles depend on it directly, so
-    // the loop position and active cue are shown beside it.
     var clockValue = masterClock();
     var clock = clockValue
       ? clockValue.toFixed(2) + 's (loop ' + (clockValue % LOOP_SECONDS).toFixed(2) + 's' +
@@ -662,6 +738,10 @@
       'terminal=' + yn(terminalPresentsMain) + ' interpOnly=' + yn(interpreterOnlyMode) +
       ' clock=' + clock + '\n' +
       'url=' + currentInterpreterUrl + '\n' +
+      'viewport=' + window.innerWidth + 'x' + window.innerHeight +
+      ' dpr=' + (window.devicePixelRatio || 1) +
+      ' screen=' + (window.screen ? screen.width + 'x' + screen.height : '-') +
+      ' rem=' + parseFloat(getComputedStyle(document.documentElement).fontSize) + 'px\n' +
       fpsLine + '\n' +
       (stats
         ? 'mpdFails=' + stats.mpdFails + '  decoded=' + stats.decoded +
@@ -678,23 +758,38 @@
 
   setInterval(renderDiag, 1000);
 
-  // ── TV remote key handler ──────────────────────────────────────────────────
   var VK_LEFT   = 37;
   var VK_UP     = 38;
   var VK_RIGHT  = 39;
   var VK_DOWN   = 40;
-  var VK_RED    = 403; var VK_RED2    = 183; // HbbTV / Android
+  var VK_RED    = 403; var VK_RED2    = 183;
   var VK_GREEN  = 404; var VK_GREEN2  = 184;
   var VK_YELLOW = 405; var VK_YELLOW2 = 185;
   var VK_BLUE   = 406; var VK_BLUE2   = 186;
   var VK_0      = 48;
   var VK_ENTER  = 13;
-  // Not part of any keyset mask — requested separately, and a terminal may
-  // refuse it, which is why OK toggles subtitles as well.
   var VK_SUBTITLE = HbbTV.VK_SUBTITLE;
+
+  var SIGNER_KEYS = [VK_GREEN, VK_GREEN2, VK_YELLOW, VK_YELLOW2, VK_BLUE, VK_BLUE2,
+                     VK_UP, VK_DOWN, VK_LEFT, VK_RIGHT];
+  function isSignerKey(key) { return SIGNER_KEYS.indexOf(key) >= 0; }
+
+  showHintBar();
 
   document.addEventListener('keydown', function (e) {
     var key = e.keyCode || e.which;
+    showHintBar();
+
+    if (!interpreterVisible && isSignerKey(key)) {
+      e.preventDefault();
+      return;
+    }
+
+    if (isSplitLayout() && (key === VK_UP || key === VK_DOWN || key === VK_LEFT || key === VK_RIGHT)) {
+      showToast('Premik v tem pogledu ni mogoč');
+      e.preventDefault();
+      return;
+    }
 
     switch (key) {
       case VK_SUBTITLE:
@@ -716,25 +811,30 @@
         e.preventDefault();
         break;
 
-      case VK_GREEN:
-      case VK_GREEN2:
-        if (sizeIdx < SIZE_WIDTHS.length - 1) { sizeIdx++; applySize(); }
+      case VK_YELLOW:
+      case VK_YELLOW2:
+        if (isSplitLayout()) {
+          if (splitIdx < SIDE_STEPS.length - 1) { splitIdx++; applySize(true); }
+          else { showToast('Največji tolmač'); }
+        } else if (sizeIdx < SIZE_WIDTHS.length - 1) { sizeIdx++; applySize(true); }
         else { showToast('Največja velikost'); }
         e.preventDefault();
         break;
 
-      case VK_YELLOW:
-      case VK_YELLOW2:
-        if (sizeIdx > 0) { sizeIdx--; applySize(); }
+      case VK_GREEN:
+      case VK_GREEN2:
+        if (isSplitLayout()) {
+          if (splitIdx > 0) { splitIdx--; applySize(true); }
+          else { showToast('Najmanjši tolmač'); }
+        } else if (sizeIdx > 0) { sizeIdx--; applySize(true); }
         else { showToast('Najmanjša velikost'); }
         e.preventDefault();
         break;
 
       case VK_BLUE:
       case VK_BLUE2:
-        posRow = 0; posCol = 2; applyPosition();   // top right, as at startup
-        sizeIdx = DEFAULT_SIZE_IDX; applySize();
-        showToast('Ponastavitev');
+        layoutMode = (layoutMode + 1) % LAYOUT_LABELS.length;
+        applyLayout();
         e.preventDefault();
         break;
 
@@ -764,12 +864,76 @@
     }
   });
 
-  // ── Video dimension detection ──────────────────────────────────────────────
+  var VIEW_NAMES = ['floating_transparent', 'floating_grey', 'split_overlapping', 'split_side_by_side'];
+  var POSITION_NAMES = {
+    tl: 'top-left',    tc: 'top-centre',    tr: 'top-right',
+    ml: 'middle-left', mc: 'centre',        mr: 'middle-right',
+    bl: 'bottom-left', bc: 'bottom-centre', br: 'bottom-right'
+  };
+  var TEST_KEY_NAMES = {};
+  TEST_KEY_NAMES[VK_RED] = TEST_KEY_NAMES[VK_RED2] = 'red';
+  TEST_KEY_NAMES[VK_GREEN] = TEST_KEY_NAMES[VK_GREEN2] = 'green';
+  TEST_KEY_NAMES[VK_YELLOW] = TEST_KEY_NAMES[VK_YELLOW2] = 'yellow';
+  TEST_KEY_NAMES[VK_BLUE] = TEST_KEY_NAMES[VK_BLUE2] = 'blue';
+  TEST_KEY_NAMES[VK_UP] = 'up';
+  TEST_KEY_NAMES[VK_DOWN] = 'down';
+  TEST_KEY_NAMES[VK_LEFT] = 'left';
+  TEST_KEY_NAMES[VK_RIGHT] = 'right';
+  TEST_KEY_NAMES[VK_ENTER] = 'ok';
+
+  function testState() {
+    var size = null;
+    if (interpreterVisible) {
+      var w = overlay.getBoundingClientRect().width;
+      if (w > 0 && window.innerWidth > 0) { size = Math.round(w / window.innerWidth * 100); }
+    }
+    return {
+      signer: interpreterVisible,
+      view: VIEW_NAMES[layoutMode],
+      position: isSplitLayout() ? null : POSITION_NAMES[POS_GRID[posRow][posCol]],
+      signer_size_pct: size
+    };
+  }
+
+  function testLog(action, key) {
+    if (window.TestSession) { window.TestSession.log('signer_app', action, testState(), key); }
+  }
+
+  var testBefore = null;
+  window.addEventListener('keydown', function () {
+    testBefore = { visible: interpreterVisible, split: isSplitLayout(), size: sizeIdx,
+                   splitStep: splitIdx, row: posRow, col: posCol };
+  }, true);
+
+  function testAction(key, b) {
+    if (!b.visible && key !== 'red' && key !== 'ok') { return 'ignored_signer_off'; }
+    var resized = b.split ? splitIdx !== b.splitStep : sizeIdx !== b.size;
+    switch (key) {
+      case 'red':    return interpreterVisible ? 'signer_on' : 'signer_off';
+      case 'green':  return resized ? 'signer_smaller' : 'size_limit_reached';
+      case 'yellow': return resized ? 'signer_larger' : 'size_limit_reached';
+      case 'blue':   return 'view_changed';
+      case 'ok':     return 'ok_pressed';
+      default:
+        if (b.split) { return 'move_not_possible_in_split_view'; }
+        return (posRow !== b.row || posCol !== b.col) ? 'signer_moved' : 'move_limit_reached';
+    }
+  }
+
+  document.addEventListener('keydown', function (e) {
+    var key = TEST_KEY_NAMES[e.keyCode || e.which];
+    if (key && testBefore) { testLog(testAction(key, testBefore), key); }
+  });
+  testLog('app_opened');
+
   interpreterVideo.addEventListener('loadedmetadata', function () {
     adaptToVideoRatio(interpreterVideo.videoWidth, interpreterVideo.videoHeight);
   });
 
-  // ── Video error handlers ───────────────────────────────────────────────────
+  interpreterVideo.addEventListener('loadeddata', function () {
+    setInterpreterLoading(false);
+  });
+
   interpreterVideo.addEventListener('error', function () {
     if (decoderMode === 'native') {
       showError('Interpreter decoder failed — switching to canvas mode.');
@@ -784,78 +948,16 @@
     }
   });
 
-  // ── Auto-unmute main video once playing ───────────────────────────────────
-  // Browser autoplay requires muted; unmute as soon as play() succeeds.
   var onFirstPlay = function () {
     mainVideo.removeEventListener('playing', onFirstPlay);
     mainVideo.muted = false;
   };
   mainVideo.addEventListener('playing', onFirstPlay);
 
-  // ── Subtitles ─────────────────────────────────────────────────────────────
-  // Rendered by this application rather than the terminal, and signalled in the
-  // service list as SubtitleCarriageCS "app" — a real value in the DVB scheme,
-  // not a workaround. The conformant alternative is an EBU-TT-D AdaptationSet
-  // in the manifest, which ffmpeg's DASH muxer cannot produce: it labels a TTML
-  // track as contentType="audio" and refuses WebVTT outright. See
-  // subtitles/main_slv.xml for the EBU-TT-D the conformant path would carry.
-  //
-  // The cost is real and belongs in any honest account of this: the viewer's
-  // font size, colour and contrast preferences live in the television's own
-  // subtitle settings, and an application that draws its own text does not
-  // inherit them. What it buys is that one renderer owns both access services,
-  // so the signer and the subtitles can be positioned with knowledge of each
-  // other — which nothing in DVB-I or HbbTV otherwise allows.
-
-  // The programme loops, and the cues come from outside the stream, so they
-  // have to be folded back into the loop by hand. The signer needs none of
-  // this: it is an AdaptationSet inside the manifest, so it loops with the
-  // content for free. That asymmetry is the whole argument for in-band
-  // subtitles — this constant is the price of not having them.
-  //
-  // 249.856, not the 249.8 the video runs for. ffmpeg's -stream_loop advances
-  // the timeline by the longest stream, and the AAC audio outlasts the video:
-  // 11712 frames x 1024 samples / 48000 Hz = 249.856 s, against 6245 frames at
-  // 25 fps = 249.8 s.
-  //
-  // Those 56 ms are invisible in one loop and fatal across many, because the
-  // error is multiplied by the loop count rather than staying put. Measured
-  // against the live stream after five days of encoder uptime — 1670 loops —
-  // the cues were 94 seconds out. Restarting the encoder made them correct
-  // again, which is what confirmed the cause: a fresh stream has no loops to
-  // multiply, so any value works until the drift builds back up.
-  //
-  // Verified by fetching a segment at a known presentation time, decoding its
-  // first frame, and matching it against the source at the position this value
-  // predicts — the same frame, where 249.8 pointed 94 seconds away.
-  //
-  // This is a property of the encoded source, not of the standard. Re-measure
-  // whenever video_content changes:
-  //   ffprobe -v error -select_streams a:0 -show_entries stream=nb_frames \
-  //           video_content/source_combined.mp4
-  //   loop = nb_frames * 1024 / 48000
   var LOOP_SECONDS  = 249.856;
   var SUBTITLE_URL  = 'subtitles/main_slv.srt';
 
   var subtitleCues    = [];
-  // Whether this application draws the subtitles itself.
-  //
-  // It no longer needs to. The stream carries them as an EBU-TT-D track in the
-  // manifest, encapsulated in ISO BMFF per ETSI TS 103 285 clause 7.1.1, so the
-  // terminal renders them and the viewer's own subtitle settings — size, colour,
-  // contrast — apply to them. That is the whole reason for putting them in band,
-  // and drawing over the top of them would take it away again.
-  //
-  // Leaving them on was also actively wrong once the loop length changed:
-  // LOOP_SECONDS below is 249.856, measured from the old source, and the loop is
-  // now exactly 248 s. Cues folded into the wrong length slip 1.856 s further
-  // out on every pass.
-  //
-  // Kept behind a flag rather than deleted, because an application that renders
-  // both access services can position the signer and the subtitles with
-  // knowledge of each other, and nothing in DVB-I or HbbTV lets a terminal and
-  // an application negotiate that. Turning this on demonstrates the alternative;
-  // it is not the conformant path.
   var APP_RENDERED_SUBTITLES = false;
 
   var subtitlesOn     = APP_RENDERED_SUBTITLES;
@@ -886,8 +988,6 @@
 
   function loadSubtitles() {
     if (typeof fetch === 'undefined') {
-      // Older terminal browsers predate fetch; the overlay still works without
-      // subtitles, so degrade rather than taking the application down with us.
       console.warn('[Subs] no fetch() — subtitles unavailable');
       return;
     }
@@ -902,24 +1002,14 @@
         if (!subtitleCues.length) { showError('Subtitle file contained no cues'); }
       })
       .catch(function (e) {
-        // Silence here would look identical to a programme with no dialogue.
         console.warn('[Subs] load failed:', e && e.message);
         showError('Subtitles could not be loaded: ' + (e && e.message));
       });
   }
 
-  // Called from the same animation loop that presents the signer, so both
-  // access services are driven by one clock and cannot disagree about where
-  // the programme is.
   function updateSubtitles() {
     if (!subtitleEl) { return; }
     if (!subtitlesOn || !subtitleCues.length) {
-      // Hide unconditionally rather than only when a cue was active. Guarding
-      // on activeCueIndex looks like a cheap way to avoid touching the DOM
-      // every tick, but toggleSubtitles() clears that index before calling
-      // here, so the guard was always false at exactly the moment it mattered
-      // and the cue on screen when the viewer switched subtitles off stayed
-      // there for good.
       subtitleEl.style.display = 'none';
       activeCueIndex = -1;
       return;
@@ -927,10 +1017,6 @@
 
     var clock = masterClock();
     if (!clock) {
-      // No clock: on a terminal there is no presentation timeline to read, the
-      // same gap that leaves the signer unsynchronised. Showing cues paced
-      // against nothing would put the wrong words on screen, which is worse
-      // than showing none.
       if (activeCueIndex !== -1) { subtitleEl.style.display = 'none'; activeCueIndex = -1; }
       return;
     }
@@ -956,9 +1042,6 @@
   }
 
   function toggleSubtitles() {
-    // The terminal owns the subtitles now, and it offers its own control for
-    // them. Claiming the key here would leave the viewer pressing it and seeing
-    // nothing happen, which is worse than the key doing nothing at all.
     if (!APP_RENDERED_SUBTITLES) {
       showToast('Podnapisi so zagotovljeni s strani televizorja');
       return;
@@ -969,31 +1052,15 @@
     showToast('Subtitles ' + (subtitlesOn ? 'on' : 'off'));
   }
 
-  // Neither the fetch nor the 5 Hz timer is worth running when the terminal is
-  // the one drawing the subtitles.
   if (APP_RENDERED_SUBTITLES) {
     loadSubtitles();
     setInterval(updateSubtitles, 200);
   }
 
-  // ── Boot ──────────────────────────────────────────────────────────────────
-  // HbbTV applications start hidden; without this the overlay runs but nothing
-  // is drawn. No-op in a browser.
   if (HbbTV.showApplication()) {
     console.log('[App] HbbTV application shown and activated');
   }
 
-  // A terminal delivers no key events until an application asks for them, so
-  // every handler below is dead on a TV without this. The four colour keys plus
-  // NAVIGATION are exactly the set app.js binds: RED toggles the overlay, GREEN
-  // and YELLOW resize it, BLUE resets, the arrows move it and BACK closes the
-  // controls. Nothing else is requested — keys an application holds are keys
-  // the terminal can no longer use for its own UI.
-  // NUMERIC is deliberately absent: on a terminal the number keys are how a
-  // viewer types a channel number, and an application holding them takes that
-  // away. The subtitle key is asked for separately because it belongs to no
-  // mask, and a terminal that refuses it costs nothing here — OK toggles
-  // subtitles too.
   HbbTV.requestKeys(
     HbbTV.KEYSET.RED | HbbTV.KEYSET.GREEN | HbbTV.KEYSET.YELLOW |
     HbbTV.KEYSET.BLUE | HbbTV.KEYSET.NAVIGATION,
@@ -1003,11 +1070,6 @@
   var bootEl = document.getElementById('dvbi-boot-status');
   if (bootEl) { bootEl.style.display = 'none'; }
 
-  // ── Capability detection ──────────────────────────────────────────────────
-  // Resolves to the decoder mode to use. Detection has to finish before the
-  // first decoder starts: starting one and switching a moment later spins up a
-  // Broadway worker and a WASM instance only to tear them down, which on TV
-  // hardware is far from free.
   var DECODER_MODES = ['canvas', 'webcodecs', 'video-canvas', 'native'];
 
   function detectDecoderMode() {
@@ -1022,10 +1084,6 @@
     })();
 
     console.log('[Caps] MSE:', mseSupported ? 'YES' : 'NO');
-    // WebCodecs is gated on a secure context, so the same terminal reports NO
-    // over http:// and YES over https:// — and silently changes decoder. Log the
-    // context alongside it, or a decoder switch caused by moving to TLS looks
-    // like a decoder switch caused by nothing.
     console.log('[Caps] WebCodecs:', wcSupported ? 'YES' : 'NO',
                 '(secure context:', window.isSecureContext ? 'yes' : 'no', ')');
     console.log('[Caps] WASM:', wasmSupported ? 'YES' : 'NO');
@@ -1034,13 +1092,6 @@
       showError('MSE not supported — DASH streams cannot play. HbbTV 2.0 required for DASH.');
     }
 
-    // Software decoding is the default, deliberately. Presenting the signer from
-    // a second video track on a terminal that has one hardware decoder is the
-    // case this work exists to demonstrate, and a decoder that only some
-    // terminals have must not quietly replace it — least of all because
-    // WebCodecs is gated on a secure context, so moving a deployment from http
-    // to https would otherwise change the decoder with nobody choosing to.
-    // WebCodecs stays available for comparison: ?decoder=webcodecs.
     var requested = getUrlParams().decoder;
 
     if (requested === 'webcodecs') {
@@ -1073,8 +1124,6 @@
       return Promise.resolve('canvas');
     }
 
-    // No WebAssembly at all: the default cannot run, so take whatever remains
-    // rather than showing nothing.
     if (wcSupported && window.WebCodecsDecoder) {
       console.warn('[Caps] no WebAssembly — falling back to WebCodecs');
       return WebCodecsDecoder.isSupported('avc1.42001f')
@@ -1085,8 +1134,8 @@
     return Promise.resolve('video-canvas');
   }
 
-  // Apply initial size (no CSS class — use inline style)
   applySize();
+  applyPosition(false);
 
   detectDecoderMode().then(function (mode) {
     decoderMode = mode;

@@ -1,33 +1,10 @@
 #!/usr/bin/env python3
-"""Put every packaged segment into the one shape the publisher can serve.
-
-The segments carry timestamps from inside the 248 s loop — segment 11 says it
-begins at 40 s — but a live stream needs them to increase forever. The publisher
-therefore adds an offset to each segment's baseMediaDecodeTime as it serves it,
-and this makes that a single fixed-width write rather than a special case per
-representation:
-
-  - `sidx` is removed. It carries its own copy of the earliest presentation
-    time, so leaving it would mean patching two places and keeping them
-    agreeing. A segment of styp/moof/mdat is what DASH live profile expects and
-    what ffmpeg's own live output contained.
-
-  - `tfdt` is forced to version 1, the 64-bit form. MP4Box writes version 0 for
-    the subtitles because the values inside one loop are small, but a live
-    timeline at timescale 1000 passes 2^32 after 49 days, and the failure would
-    be a stream that works for a month and a half and then silently stops.
-    Growing the box by four bytes moves everything after it, so the enclosing
-    traf and moof sizes and the trun data offset all move with it.
-
-Run by ffmpeg_stream_commands/package-loop. Idempotent.
-"""
 import struct
 import sys
 import os
 
 
 def boxes(data, start=0, end=None):
-    """Yield (type, offset, size) of the boxes directly inside [start, end)."""
     end = len(data) if end is None else end
     i = start
     while i + 8 <= end:
@@ -44,13 +21,11 @@ def boxes(data, start=0, end=None):
 
 
 def find(data, path, start=0, end=None):
-    """Walk a path of box types, e.g. [b'moof', b'traf', b'tfdt']."""
     end = len(data) if end is None else end
     for btype, off, size in boxes(data, start, end):
         if btype == path[0]:
             if len(path) == 1:
                 return off, size
-            # Container payloads begin straight after the 8 byte header.
             return find(data, path[1:], off + 8, off + size)
     return None
 
@@ -65,13 +40,12 @@ def strip_sidx(data):
 
 
 def upgrade_tfdt(data):
-    """Rewrite a version 0 tfdt as version 1, fixing every size it sits inside."""
     hit = find(data, [b"moof", b"traf", b"tfdt"])
     if hit is None:
         return data
     tfdt_off, tfdt_size = hit
     if data[tfdt_off + 8] == 1:
-        return data                      # already 64 bit
+        return data
 
     value = struct.unpack(">I", data[tfdt_off + 12:tfdt_off + 16])[0]
     new_tfdt = (struct.pack(">I", tfdt_size + 4) + b"tfdt" +
@@ -80,21 +54,18 @@ def upgrade_tfdt(data):
 
     out = bytearray(data[:tfdt_off] + new_tfdt + data[tfdt_off + tfdt_size:])
 
-    # The boxes that now contain four more bytes.
     for path in ([b"moof"], [b"moof", b"traf"]):
         hit = find(bytes(out), path)
         if hit:
             off, size = hit
             out[off:off + 4] = struct.pack(">I", size + 4)
 
-    # trun's data offset is measured from the start of the moof, and the data it
-    # points at has just moved four bytes further away.
     moof = find(bytes(out), [b"moof"])
     trun = find(bytes(out), [b"moof", b"traf", b"trun"])
     if moof and trun:
         off, _ = trun
         flags = struct.unpack(">I", out[off + 8:off + 12])[0] & 0xFFFFFF
-        if flags & 0x000001:             # data-offset-present
+        if flags & 0x000001:
             cur = struct.unpack(">i", out[off + 16:off + 20])[0]
             out[off + 16:off + 20] = struct.pack(">i", cur + 4)
     return bytes(out)

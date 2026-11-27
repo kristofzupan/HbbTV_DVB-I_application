@@ -17,13 +17,6 @@ var serviceList = null;
 var language_settings = null;
 var modalClosedCallback = null;
 
-// The service list the client presents when the viewer has not chosen one.
-//
-// Derived from INSTALL_LOCATION rather than written out, because
-// scripts/start-dvbi-reference-client.js rewrites configuration.js from a fixed
-// template on every deployment: a host name put there by hand is lost on the
-// next `deploy/update`. Set to "" to restore the reference client's original
-// behaviour of asking the viewer to pick a list first.
 var DEFAULT_SERVICE_LIST = INSTALL_LOCATION + "/backend/servicelist.php?list=thesis.xml";
 
 //TODO use MSE-EME to determine actual DRM support, although
@@ -62,7 +55,9 @@ function channelSelected(channelId) {
   $("#pause").hide();
   $("#play").hide();
   newChannel.channelSelected();
+  var firstTune = !selectedChannel;
   selectedChannel = newChannel;
+  if (typeof logClientState == "function") logClientState(firstTune ? "auto_tuned" : "channel_changed");
 }
 
 window.onload = function () {
@@ -132,10 +127,6 @@ window.onload = function () {
   } else if (serviceList) {
     listSelected(serviceList, true);
   } else if (DEFAULT_SERVICE_LIST) {
-    // A television has no pointer, and the screen this dialog sends the viewer
-    // to is reachable by click only, so on a TV the original first run is a dead
-    // end. Presenting the deployment's own list instead means the client starts
-    // on a service; the viewer can still choose another from the settings.
     listSelected(DEFAULT_SERVICE_LIST, true);
   } else {
     showModalDialog(
@@ -172,17 +163,6 @@ window.onload = function () {
   player.initialize(video);
   player.setAutoPlay(true);
 
-  // Off until the viewer asks for them. dash.js enables the first text track it
-  // finds, which meant subtitles appeared unbidden the moment the stream began
-  // carrying them — the opposite of an accessibility feature, which is a thing
-  // the viewer turns on. The subtitle key and the track list both switch them
-  // back on, and the terminal remembers the choice for the session.
-  //
-  // A setting rather than setTextDefaultEnabled(): that method was removed in
-  // dash.js v5, which is the version player.html loads. Calling it threw, and
-  // because this runs inside window.onload the throw took every line after it
-  // with it — including attachTTMLRenderingDiv below, which is why the console
-  // then filled with "Impossible to display subtitles".
   player.updateSettings({ streaming: { text: { defaultEnabled: false } } });
   player.on("error", function (e) {
     console.log(e);
@@ -897,11 +877,6 @@ function showSubtitles() {
   for (var i = 0; i < subtitles.length; i++) {
     var container = document.createElement("div");
     container.classList.add("row");
-    // current is null whenever subtitles are switched off, which is the state
-    // this list is usually opened from. The loop never ran before because the
-    // stream carried no text track for it to list, so the missing guard could
-    // not be reached; adding an EBU-TT-D track to the manifest reached it on the
-    // first pass. The "Off" row below already tests for the same null.
     if (current && subtitles[i].id == current.id) {
       container.classList.add("selected_track");
     }

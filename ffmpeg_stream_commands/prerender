@@ -1,118 +1,112 @@
 #!/bin/sh
-# Build the two source files the loop is served from. Run once, whenever
-# video_content changes. Nothing here runs at serving time.
-#
-# The programme is a fixed loop, so every frame that will ever be sent is known
-# in advance. Encoding it live — twice over, forever — is what made the host run
-# out of CPU: with both streams encoding at once the encoder logged speed=0.999x
-# with duplicated frames and published segments in bursts, which stalled
-# playback. Encoding once, offline, removes the constraint entirely and lets
-# both channels use the same slow preset, so they are finally comparable to each
-# other as well as cheaper to serve.
-#
-# LOOP_SECONDS = 248 is not a round number chosen for tidiness. It is the
-# longest length under the source that is exact in all three units the stream is
-# divided into:
-#
-#   248 s = 6200 video frames at 25 fps          (exact)
-#         = 11625 AAC frames at 48 kHz / 1024    (exact)
-#         = 62 segments of 4 s                   (exact)
-#
-# 249.8 s of video against 249.856 s of audio is where the subtitle drift came
-# from: -stream_loop advances the timeline by the longest stream, so every loop
-# put the cues 56 ms further out, and after 1670 loops they were 94 seconds
-# away. Cutting both to a length that is exact in every unit means the loop
-# restarts on a segment boundary with video, audio and subtitles all at zero
-# together, and the drift cannot accumulate because there is nothing left over
-# to accumulate. 252 s would not do: 11812.5 AAC frames is half a frame short.
 set -e
+set -f
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-IN_MAIN="$ROOT/video_content/main.mp4"
-IN_SIGN="$ROOT/video_content/interpreter.mp4"
-OUT_COMBINED="$ROOT/video_content/source_combined.mp4"
-OUT_BURNED="$ROOT/video_content/source_burned.mp4"
+VC="$ROOT/video_content"
+ED="$VC/urejeno"
 
-# Overridable so the pipeline can be exercised end to end on a few seconds of
-# content without waiting for a full encode. Any override has to satisfy the
-# same three exactness conditions, so they are checked rather than assumed.
-LOOP_SECONDS=${LOOP_SECONDS:-248}
-
-WANT_VIDEO_FRAMES=$((LOOP_SECONDS * 25))
-WANT_AUDIO_FRAMES=$((LOOP_SECONDS * 48000 / 1024))
-if [ $((LOOP_SECONDS % 4)) -ne 0 ] || \
-   [ $((WANT_AUDIO_FRAMES * 1024)) -ne $((LOOP_SECONDS * 48000)) ]; then
-  echo "LOOP_SECONDS=$LOOP_SECONDS is not exact in all three units:" >&2
-  echo "  needs to divide by 4 (segments) and by 1024/48000 (AAC frames)" >&2
-  exit 2
-fi
-
-for f in "$IN_MAIN" "$IN_SIGN"; do
-  [ -f "$f" ] || { echo "Missing $f" >&2; exit 1; }
-done
-
-# -g 100 with -keyint_min 100 and -sc_threshold 0 puts an IDR exactly every 4 s
-# and nowhere else, which is what lets the packager cut segments on keyframes
-# without re-encoding, and what lets the loop restart on a segment boundary.
-#
-# -preset slow because this runs once and nothing is waiting for it. The live
-# encoders had to use veryfast and ultrafast to keep up; at the same bitrate
-# this is better than either, and identical across both channels.
-#
-# The signer track is the exception, and -refs:v:1 1 below is why. It is not
-# decoded by the television: an application decodes it in JavaScript, through
-# Broadway, so its cost is paid frame by frame in a software decoder rather than
-# in silicon. -preset slow raises x264's reference frames from 1 to 5, which the
-# hardware decoder handling the picture does not notice and Broadway very much
-# does — it stuttered every few seconds until this was pinned back. The profile
-# is already constrained to Baseline for the same decoder, so this is the same
-# concession applied to the same constraint.
 GOP="-g 100 -keyint_min 100 -sc_threshold 0"
 PRESET=${PRESET:-"-preset slow"}
 
-echo "== Building $OUT_COMBINED (main + signer as separate tracks)"
-ffmpeg -y -loglevel warning \
-  -i "$IN_MAIN" -i "$IN_SIGN" \
-  -filter_complex "[1:v]crop=1080:1080:420:0,scale=480:480,fps=25[sign]" \
-  -map 0:v:0 -map 0:a:0 -map "[sign]" \
-  -t "$LOOP_SECONDS" \
-  -c:v libx264 $PRESET $GOP -pix_fmt yuv420p \
-  -profile:v:0 high     -level:v:0 4.0 -b:v:0 3000k -maxrate:v:0 3300k -bufsize:v:0 6000k \
-  -profile:v:1 baseline -level:v:1 3.1 -b:v:1 800k  -maxrate:v:1 900k  -bufsize:v:1 1600k \
-  -refs:v:1 1 \
-  -c:a aac -b:a 128k -ar 48000 -ac 2 \
-  -movflags +faststart \
-  "$OUT_COMBINED"
+MAIN_ENC="-profile:v:0 high -level:v:0 4.0 -b:v:0 3000k -maxrate:v:0 3300k -bufsize:v:0 6000k"
 
-# The signer is composited here rather than at serving time. overlay places it
-# top right with a 32 px margin, where the application puts it by default: the
-# two channels are only a fair comparison if the signer is in the same place on
-# both. The bottom of the screen is left to subtitles.
-echo "== Building $OUT_BURNED (signer composited into the picture)"
-ffmpeg -y -loglevel warning \
-  -i "$IN_MAIN" -i "$IN_SIGN" \
-  -filter_complex "[1:v]crop=1080:1080:420:0,scale=480:480,fps=25[sign];[0:v:0][sign]overlay=W-w-32:32:shortest=0[out]" \
-  -map "[out]" -map 0:a:0 \
-  -t "$LOOP_SECONDS" \
-  -c:v libx264 $PRESET $GOP -pix_fmt yuv420p \
-  -profile:v high -level 4.0 -b:v 3000k -maxrate 3300k -bufsize 6000k \
-  -c:a aac -b:a 128k -ar 48000 -ac 2 \
-  -movflags +faststart \
-  "$OUT_BURNED"
+MAIN_ENC_5M="-profile:v:0 high -level:v:0 4.0 -b:v:0 5000k -maxrate:v:0 5500k -bufsize:v:0 10000k"
 
-# A length that is off by even one frame breaks the property the whole design
-# rests on, and it would not be visible until the cues had drifted for a day.
-echo "== Verifying"
-fail=0
-for f in "$OUT_COMBINED" "$OUT_BURNED"; do
-  v=$(ffprobe -v error -select_streams v:0 -count_frames \
-        -show_entries stream=nb_read_frames -of csv=p=0 "$f" | tr -d '\r,')
-  a=$(ffprobe -v error -select_streams a:0 -count_frames \
-        -show_entries stream=nb_read_frames -of csv=p=0 "$f" | tr -d '\r,')
-  printf '  %-28s video %s frames (want %s), audio %s frames (want %s)\n' \
-         "$(basename "$f")" "$v" "$WANT_VIDEO_FRAMES" "$a" "$WANT_AUDIO_FRAMES"
-  [ "$v" = "$WANT_VIDEO_FRAMES" ] || { echo "    FAIL: video frame count" >&2; fail=1; }
-  [ "$a" = "$WANT_AUDIO_FRAMES" ] || { echo "    FAIL: audio frame count" >&2; fail=1; }
+BUCKO_AUDIO="volume=8.8dB,alimiter=limit=-1.5dB:attack=5:release=50:level=disabled:asc=1,"
+
+SIGN_ENC="-profile:v:1 baseline -level:v:1 3.1 -b:v:1 800k -maxrate:v:1 900k -bufsize:v:1 1600k -refs:v:1 1"
+
+encode() {
+  _name=$1; _loop=$2; _main=$3; _sign=$4; _mf=$5; _menc=${6:-$MAIN_ENC}; _af=$7
+  _out="$VC/source_$_name.mp4"
+
+  if [ $((_loop % 8)) -ne 0 ]; then
+    echo "$_name: $_loop s is not a multiple of 8 s" >&2; exit 2
+  fi
+  [ -f "$_main" ] || { echo "Missing $_main" >&2; exit 1; }
+  [ -z "$_sign" ] || [ -f "$_sign" ] || { echo "Missing $_sign" >&2; exit 1; }
+
+  _fc="[0:v:0]${_mf}fps=25:start_time=0,tpad=stop_mode=clone:stop=-1[v]"
+  _map="-map [v]"
+  _enc="$_menc"
+  _ai=1
+  if [ -n "$_sign" ]; then
+    _fc="$_fc;[1:v:0]fps=25:start_time=0,tpad=stop_mode=clone:stop=-1[s]"
+    _map="$_map -map [s]"
+    _enc="$_menc $SIGN_ENC"
+    _ai=2
+  fi
+
+  _aud=$(mktemp "${TMPDIR:-/tmp}/prerender-audio.XXXXXX")
+  echo "== Building $_out ($_loop s${_sign:+, with signer track})"
+  ffmpeg -y -loglevel warning \
+    -i "$_main" -map 0:a:0 -af "${_af}apad=whole_dur=$_loop" -t "$_loop" \
+    -c:a aac -b:a 128k -ar 48000 -ac 2 -f mp4 "$_aud"
+  ffmpeg -y -loglevel warning -stats \
+    -i "$_main" ${_sign:+-i "$_sign"} -i "$_aud" \
+    -filter_complex "$_fc" $_map -map "$_ai:a:0" \
+    -t "$_loop" \
+    -c:v libx264 $PRESET $GOP -pix_fmt yuv420p $_enc \
+    -c:a copy \
+    -movflags +faststart \
+    "$_out"
+  rm -f "$_aud"
+  verify "$_out" "$_loop" "$_sign"
+  verify_sound "$_main" "$_out" "$_loop"
+}
+
+verify() {
+  _f=$1; _loop=$2; _signed=$3
+  _wv=$((_loop * 25)); _wa=$((_loop * 48000 / 1024))
+  _count() {
+    ffprobe -v error -select_streams "$1" -count_frames \
+      -show_entries stream=nb_read_frames -of csv=p=0 "$_f" | tr -d '\r,'
+  }
+  _v=$(_count v:0); _a=$(_count a:0)
+  printf '  %-24s video %s (want %s), audio %s (want %s)' \
+         "$(basename "$_f")" "$_v" "$_wv" "$_a" "$_wa"
+  _ok=yes
+  [ "$_v" = "$_wv" ] || _ok=no
+  [ "$_a" = "$_wa" ] || _ok=no
+  if [ -n "$_signed" ]; then
+    _s=$(_count v:1)
+    printf ', signer %s' "$_s"
+    [ "$_s" = "$_wv" ] || _ok=no
+  fi
+  echo
+  [ "$_ok" = yes ] || { echo "    FAIL: frame count" >&2; exit 1; }
+}
+
+silence() {
+  ffmpeg -v info -i "$1" -map 0:a:0 -af silencedetect=n=-50dB:d=2 -f null - 2>&1 |
+    awk '/silence_duration/ { s += $NF } END { printf "%.2f", s + 0 }'
+}
+verify_sound() {
+  _src=$1; _f=$2; _loop=$3
+  _sd=$(ffprobe -v error -select_streams a:0 -show_entries stream=duration -of csv=p=0 "$_src")
+  _s1=$(silence "$_src"); _s2=$(silence "$_f")
+  printf '  %-24s silent %ss, source %ss + %ss padding\n' \
+         "$(basename "$_f")" "$_s2" "$_s1" "$(echo "$_loop - $_sd" | bc)"
+  awk -v a="$_s2" -v b="$_s1" -v l="$_loop" -v d="$_sd" \
+      'BEGIN { exit (a <= b + (l - d) + 1) ? 0 : 1 }' ||
+    { echo "    FAIL: more silence than the source has" >&2; exit 1; }
+}
+
+ONLY=${*:-"tvmaribor prenosniki napoved bucko"}
+
+for ch in $ONLY; do
+  case "$ch" in
+    tvmaribor)
+      encode tvmaribor 2568 "$VC/rtv_mb.mp4" "" "" "$MAIN_ENC_5M" ;;
+    prenosniki)
+      encode prenosniki 264 "$ED/prenosniki/main.mp4" "$ED/prenosniki/tolmac.mp4" ;;
+    napoved)
+      encode napoved 256 "$ED/napoved/main.mp4" "$ED/napoved/tolmac.mp4" ;;
+    bucko)
+      encode bucko 4968 "$ED/bucko/main.mp4" "$ED/bucko/tolmac.mp4" \
+             "crop=1920:1080:39:0,setsar=1," "" "$BUCKO_AUDIO" ;;
+    *) echo "Unknown channel: $ch (tvmaribor, prenosniki, napoved, bucko)" >&2; exit 2 ;;
+  esac
 done
-[ "$fail" = "0" ] || exit 1
-echo "  ok — both sources are exactly $LOOP_SECONDS s"
+echo "  ok"

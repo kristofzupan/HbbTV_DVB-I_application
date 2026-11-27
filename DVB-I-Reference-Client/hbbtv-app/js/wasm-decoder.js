@@ -1,24 +1,6 @@
-/**
- * WasmDecoder: decodes a DASH H.264 stream using Broadway.js (pure JS/WASM)
- * and renders frames to a <canvas> element.
- *
- * Supports both VOD (static) and live (dynamic) DASH streams.
- * No <video> element or hardware decoder is used.
- *
- * Pipeline:
- *   fetch MPD → parse available segments → fetch fMP4 segments
- *   → extract H.264 NAL units (AVCC→Annex B) → Broadway.decode() → canvas
- *   For live streams: re-fetches MPD each window to follow live edge.
- */
 (function (global) {
   'use strict';
 
-  // ── MPD parser ─────────────────────────────────────────────────────────────
-
-  // String.prototype.padStart is ES2017 and missing from the browsers in HbbTV
-  // terminals of the generation this work targets. It was reached on every
-  // manifest refresh, from inside a promise chain whose only handler logs to the
-  // console — so on those terminals the overlay stayed empty and said nothing.
   function zeroPad(num, width) {
     var s = String(num);
     while (s.length < width) { s = '0' + s; }
@@ -33,9 +15,6 @@
   }
 
   function hasSignRole(a) {
-    // DASH signals sign language on the AdaptationSet, either as a Role or an
-    // Accessibility descriptor with value "sign" (role scheme of ISO/IEC 23009-1).
-    // Packagers differ on which of the two they emit, so accept both.
     var names = ['Role', 'Accessibility'], i, j, els;
     for (i = 0; i < names.length; i++) {
       els = a.getElementsByTagName(names[i]);
@@ -46,11 +25,6 @@
     return false;
   }
 
-  // The interpreter and the main picture may share one manifest, which is what
-  // keeps them on a common presentation timeline. Pick the signer explicitly by
-  // its Role rather than by position: in a combined manifest the first video
-  // AdaptationSet is the full-size main picture, which Broadway cannot decode.
-  // Falls back to the first video set so single-stream manifests still work.
   function selectSignAdaptationSet(doc) {
     var sets = doc.getElementsByTagName('AdaptationSet');
     var firstVideo = null, i, a;
@@ -95,15 +69,8 @@
         .replace('$Number$', num);
     }
 
-    // For live: determine available segment range from SegmentTimeline if present,
-    // otherwise use window_size heuristic (try startNumber + up to 10 segments).
-    // Presentation start of each segment, in seconds on the period timeline.
-    // When main and signer share a manifest they share this timeline, so these
-    // times are what let a signer frame be matched to the main frame it belongs
-    // with instead of being paced off an unrelated wall clock.
     var segCount, segStarts = [];
     if (isLive) {
-      // Walk explicit <S> entries if SegmentTimeline is present
       var timeline = seg.querySelector('SegmentTimeline');
       if (timeline) {
         var entries = timeline.getElementsByTagName('S');
@@ -117,10 +84,9 @@
         }
         segCount = segStarts.length || 10;
       } else {
-        segCount = 10; // conservative window — live with no timeline
+        segCount = 10;
       }
     } else {
-      // VOD: use mediaPresentationDuration
       var durAttr = mpdEl && mpdEl.getAttribute('mediaPresentationDuration');
       var totalSec = 0;
       if (durAttr) {
@@ -133,7 +99,6 @@
     var segs = [];
     for (var i = 0; i < segCount; i++) segs.push(resolve(mediaAttr, startNum + i));
 
-    // On-demand manifests have no SegmentTimeline; segments are evenly spaced.
     if (!segStarts.length) {
       for (var j = 0; j < segCount; j++) segStarts.push(j * segDur / timescale);
     }
@@ -147,9 +112,6 @@
       isLive:      isLive
     };
   }
-
-  // ── avcC SPS/PPS extractor (init segment) ─────────────────────────────────
-  // Init segment has no mdat — codec params are in moov→trak→mdia→minf→stbl→stsd→avc1→avcC
 
   function extractSPSPPS(buffer) {
     var view = new DataView(buffer);
@@ -169,8 +131,8 @@
         );
 
         if (type === 'avcC') {
-          var o = pos + 8; // skip box header (size + 'avcC')
-          o += 5;          // skip configVersion, profile, compat, level, lengthSizeMinusOne
+          var o = pos + 8;
+          o += 5;
           var numSPS = view.getUint8(o++) & 0x1F;
           for (var i = 0; i < numSPS; i++) {
             var spsLen = read16(o); o += 2;
@@ -187,16 +149,15 @@
             pps.set(new Uint8Array(buffer, o, ppsLen), 4);
             nals.push(pps); o += ppsLen;
           }
-          return; // found, stop walking
+          return;
         }
 
-        // Recurse into container boxes
         if (type === 'moov' || type === 'trak' || type === 'mdia' || type === 'minf' || type === 'stbl') {
           walkBoxes(pos + 8, pos + size);
         } else if (type === 'stsd') {
-          walkBoxes(pos + 16, pos + size); // stsd: 8 header + 4 version/flags + 4 entry count
+          walkBoxes(pos + 16, pos + size);
         } else if (type === 'avc1' || type === 'avc3') {
-          walkBoxes(pos + 86, pos + size); // avc1: 8 header + 6 reserved + 2 data ref + 50 VisualSampleEntry
+          walkBoxes(pos + 86, pos + size);
         }
 
         pos += size;
@@ -206,8 +167,6 @@
     walkBoxes(0, buffer.byteLength);
     return nals;
   }
-
-  // ── fMP4 NAL unit extractor ────────────────────────────────────────────────
 
   function extractNALs(buffer) {
     var view = new DataView(buffer);
@@ -250,35 +209,17 @@
     return nals;
   }
 
-  // ── WasmDecoder ────────────────────────────────────────────────────────────
+  var FRAME_DUR_MS = 40;
 
-  var FRAME_DUR_MS = 40; // 25 fps
-
-  // How many segments behind live edge to start, matching dash.js default live delay
-  // (3 × minBufferTime = 3 × 2s = 6s for this stream). Tune if interpreter drifts:
-  //   too early → increase; too late → decrease.
   var LIVE_LAG_SEGS = 3;
 
-  // How far ahead of the master clock the decoder may run. Frames decoded early
-  // just wait in the display queue, but decoding much further ahead wastes work
-  // and holds too many pending timers.
   var LEAD_SEGS = 1;
 
-  // How far a frame may be behind the master clock before it is dropped rather
-  // than drawn late. One frame of slack either side.
   var LATE_FRAME_TOLERANCE_MS = 60;
 
-  /**
-   * @param canvas       destination canvas for signer frames
-   * @param masterClock  optional () => seconds on the manifest's period
-   *                     timeline, normally the main video's currentTime. When
-   *                     supplied, frames are shown at their own presentation
-   *                     time relative to that clock rather than paced off the
-   *                     decoder's wall clock.
-   */
   function WasmDecoder(canvas, masterClock) {
     this._masterClock = typeof masterClock === 'function' ? masterClock : null;
-    this._ptsQueue    = [];   // presentation times, in submission order
+    this._ptsQueue    = [];
     this._loggedOffset = false;
     this._canvas      = canvas;
     this._ctx         = canvas.getContext('2d');
@@ -287,10 +228,6 @@
     this._initFetched = false;
     this._mpdFails    = 0;
     this._lastSegNum  = -1;
-    // Cumulative across worker restarts, unlike _globalFrameIdx. "Decoded but
-    // never drawn" is the signature of a broken render path, and telling that
-    // apart from "never decoded" is most of the diagnosis on a device with no
-    // reachable console.
     this._framesDecoded = 0;
     this._framesDrawn   = 0;
     this._framesDropped = 0;
@@ -300,20 +237,19 @@
     this._mpdUrl      = null;
     this._offscreen   = document.createElement('canvas');
     this._offCtx      = this._offscreen.getContext('2d');
-    this._imgData     = null; // reused ImageData (RGBA path)
+    this._imgData     = null;
     this._globalFrameIdx  = 0;
     this._playbackStart   = null;
     this._targetLagSegs   = 0;
     this._playerGen       = 0;
-    // WebGL YUV path — populated in _createPlayer if WebGL is available
     this._useWebGL    = false;
-    this._yuvCanvas   = null; // hidden canvas with WebGL context for YUV shader
-    this._yuvRenderer = null; // YUVCanvas instance
+    this._yuvCanvas   = null;
+    this._yuvRenderer = null;
   }
 
-  // A master clock is only usable if it lands inside the manifest's segment
-  // window. If it does not, the two are on different timelines and following it
-  // would reposition on every refresh, restarting the decoder each time.
+  WasmDecoder.CHROMA_KEY  = { u: 96, v: 55, similarity: 0.03, blend: 0.15 };
+  WasmDecoder.chromaKeyOn = true;
+
   function masterInRange(masterT, parsed) {
     if (masterT === null || !parsed.segStartSec || !parsed.segStartSec.length) return false;
     var first = parsed.segStartSec[0] - parsed.segDurSec;
@@ -321,18 +257,12 @@
     return masterT >= first && masterT <= last;
   }
 
-  // Master time, or null when there is no usable clock (interpreter-only mode,
-  // or the main video has not started). Callers fall back to wall-clock pacing.
   WasmDecoder.prototype._masterTime = function () {
     if (!this._masterClock) return null;
     var t = this._masterClock();
     return (typeof t === 'number' && isFinite(t) && t > 0) ? t : null;
   };
 
-  // Creates (or re-creates) the Broadway player and wires up onPictureDecoded.
-  // Called on start() and whenever we jump to the live edge so the old worker
-  // is terminated and all its queued (stale) frames are discarded.
-  // Draw src canvas into dst context maintaining aspect ratio (letterbox / pillarbox).
   function drawContain(ctx, src, srcW, srcH, dstW, dstH) {
     var scale = Math.min(dstW / srcW, dstH / srcH);
     var x = (dstW - srcW * scale) / 2 | 0;
@@ -344,7 +274,6 @@
   WasmDecoder.prototype._createPlayer = function () {
     var self = this;
 
-    // Terminate any existing worker cleanly
     if (self._player && self._player.worker) {
       try { self._player.worker.terminate(); } catch (e) {}
     }
@@ -352,33 +281,22 @@
 
     self._globalFrameIdx  = 0;
     self._playbackStart   = null;
-    self._ptsQueue.length = 0;  // queued times belong to the discarded worker
+    self._ptsQueue.length = 0;
     self._imgData         = null;
     self._yuvCanvas       = null;
     self._yuvRenderer     = null;
     self._playerGen++;
     var myGen = self._playerGen;
 
-    // useWorker: true     → Broadway decodes in a Web Worker; main thread stays free.
-    // webgl: 'auto'       → If TV has WebGL: worker sends raw YUV420 (no asm.js
-    //                       YUV→RGBA in worker, 37.5% less postMessage data);
-    //                       YUVCanvas GPU shader handles conversion on main thread.
-    //                       If no WebGL: falls back to RGBA worker output automatically.
-    // render: false       → Disable Broadway's own canvas render (never in DOM).
-    // transferMemory:true → Zero-copy NAL transfer to worker.
     self._player = new Player({
       useWorker:      true,
       workerFile:     'js/broadway-decoder.js',
-      // 'auto' unless a YUVCanvas init has already failed on this device, in
-      // which case the worker must convert to RGBA itself.
       webgl:          self._forceNoWebGL ? false : 'auto',
       render:         false,
       transferMemory: true,
       size:           { width: 1, height: 1 }
     });
 
-    // Record which path the worker will use for this player instance.
-    // self._player.webgl is set by Broadway's auto-detection before we read it.
     self._useWebGL = self._player.webgl;
     console.log('[WasmDecoder] render path:', self._useWebGL ? 'WebGL YUV shader' : 'software RGBA');
 
@@ -395,9 +313,6 @@
       self._framesDecoded++;
       if (self._playbackStart === null) self._playbackStart = Date.now();
 
-      // Broadway emits pictures in submission order (Baseline profile has no
-      // frame reordering), so the oldest queued presentation time belongs to
-      // this picture.
       var ptsSec    = self._ptsQueue.length ? self._ptsQueue.shift() : null;
       var masterSec = self._masterTime();
       var delay;
@@ -410,8 +325,6 @@
                       's, signer pts', ptsSec.toFixed(2),
                       's, offset', (masterSec - ptsSec).toFixed(2), 's');
         }
-        // Too far behind the picture to be useful — drop it and let the next
-        // manifest refresh reposition us.
         if (delay < -LATE_FRAME_TOLERANCE_MS) { self._framesDropped++; return; }
         if (delay < 0) { delay = 0; }
       } else {
@@ -419,40 +332,25 @@
         delay = Math.max(0, targetMs - Date.now());
       }
 
-      // buf is from a transferred ArrayBuffer — stable for this closure lifetime.
       var w = width, h = height;
 
       if (self._useWebGL) {
-        // ── WebGL YUV path ──────────────────────────────────────────────────
-        // Lazy-init YUVCanvas at actual video dimensions (not display size).
-        // YUVCanvas creates its own WebGL context on a hidden canvas; we then
-        // blit that canvas to the display canvas via drawImage (GPU scaling).
         if (!self._yuvRenderer || self._yuvCanvas.width !== w || self._yuvCanvas.height !== h) {
           self._yuvCanvas          = document.createElement('canvas');
           self._yuvCanvas.width    = w;
           self._yuvCanvas.height   = h;
           self._yuvRenderer        = new YUVCanvas({ canvas: self._yuvCanvas, width: w, height: h });
           if (!self._yuvRenderer.isWebGL()) {
-            // Broadway's detection said WebGL, YUVCanvas disagrees. Skipping the
-            // frame and retrying is not a recovery: the flag is never cleared, so
-            // every later frame lands here too and the overlay stays empty for
-            // the rest of the session with only a console warning to show for it.
-            //
-            // Falling through to the RGBA branch below would not work either —
-            // webgl:'auto' told the worker to emit YUV planes, so `buf` is the
-            // wrong shape for putImageData. The worker has to be rebuilt with
-            // conversion switched back on, which is what _forceNoWebGL does.
             console.warn('[WasmDecoder] YUVCanvas WebGL init failed — ' +
                          'restarting the worker in software RGBA mode');
             self._yuvRenderer  = null;
             self._forceNoWebGL = true;
             self._createPlayer();
-            self._initFetched  = false; // fresh worker needs SPS/PPS again
+            self._initFetched  = false;
             return;
           }
         }
 
-        // Snapshot YUV plane views before setTimeout (all views into same stable buffer).
         var yLen  = w * h;
         var uvLen = (w >> 1) * (h >> 1);
         var yData = buf.subarray(0, yLen);
@@ -462,8 +360,7 @@
         setTimeout(function () {
           if (self._stopped || !self._yuvRenderer) return;
           try {
-            // drawNextOutputPicture({yData,uData,vData}) — first arg passed as `par`
-            // to drawNextOuptutPictureGL(par); par.yData/uData/vData are the planes.
+            self._yuvRenderer.setChromaKey(WasmDecoder.chromaKeyOn, WasmDecoder.CHROMA_KEY);
             self._yuvRenderer.drawNextOutputPicture({ yData: yData, uData: uData, vData: vData });
             drawContain(self._ctx, self._yuvCanvas, w, h, self._canvas.width, self._canvas.height);
             self._framesDrawn++;
@@ -478,7 +375,6 @@
         }, Math.max(0, delay));
 
       } else {
-        // ── Software RGBA path (original) ───────────────────────────────────
         setTimeout(function () {
           if (self._stopped) return;
           try {
@@ -511,8 +407,6 @@
     };
   };
 
-  // Snapshot for the on-screen diagnostic. Everything here is otherwise only
-  // visible in a console, which a television does not offer.
   WasmDecoder.prototype.getStats = function () {
     return {
       decoded:    this._framesDecoded,
@@ -543,9 +437,6 @@
     var self = this;
     if (self._stopped) return;
 
-    // When this cycle began, so the pacing below can subtract the time the
-    // manifest and segment fetches actually took instead of assuming they were
-    // free. Measured before the first request for that reason.
     var cycleStart = Date.now();
 
     fetch(self._mpdUrl)
@@ -553,11 +444,10 @@
       .then(function (text) {
         if (self._stopped) return;
         var parsed = parseMPD(text, self._mpdUrl);
-        self._mpdFails = 0;   // recovered — stop reporting the old failure
+        self._mpdFails = 0;
 
         console.log('[WasmDecoder] MPD parsed — live:', parsed.isLive, 'segments:', parsed.segmentUrls.length, 'startNum:', parsed.startNumber);
 
-        // Init segment — only once per session
         var initPromise = self._initFetched
           ? Promise.resolve()
           : fetch(parsed.initUrl)
@@ -587,37 +477,17 @@
           }
 
           if (parsed.isLive && masterInRange(masterT, parsed)) {
-            // Follow the main video rather than the live edge. The main player
-            // sits several seconds behind live, so chasing the edge here is
-            // itself a source of offset.
             var wantIdx = 0;
             for (var wi = 0; wi < parsed.segStartSec.length; wi++) {
               if (parsed.segStartSec[wi] <= masterT) wantIdx = wi;
             }
 
-            // Decode the segment *after* the one the master clock is inside,
-            // not the one containing it. The containing segment has the master
-            // somewhere in its middle, so every frame before that point is
-            // already late and onPictureDecoded drops it. How much of the
-            // segment survived depended on where the master happened to fall,
-            // which is why the overlay played part of each segment and froze
-            // for the rest — the hitch every few seconds. Position was never
-            // the problem: the decoder held the same slot in the window for
-            // twenty consecutive refreshes without once repositioning.
-            //
-            // One segment later, every frame is still in the future, so all of
-            // them arrive with a positive delay and are shown in order. The
-            // cost is up to four more seconds behind the main picture, which
-            // does not show: the overlay is judged against that picture, and
-            // the live delay holds both back together.
             var targetIdx = Math.min(wantIdx + 1, parsed.segStartSec.length - 1);
 
             var contIdx = (self._lastSegNum < 0)
               ? -1 : (self._lastSegNum + 1 - parsed.startNumber);
 
             if (contIdx < 0 || contIdx < targetIdx - 1 || contIdx > targetIdx + 2) {
-              // Never started, fell out of the window, or wildly ahead: the only
-              // way back is to jump and restart the worker.
               startIdx = targetIdx;
               if (self._lastSegNum >= 0) {
                 console.log('[WasmDecoder] repositioning to master clock',
@@ -627,15 +497,12 @@
                 self._initFetched = false;
               }
             } else if (contIdx >= urls.length || contIdx > targetIdx + LEAD_SEGS) {
-              // Caught up with the live edge, or far enough ahead of the master
-              // clock. Wait for more content instead of re-decoding what we have;
-              // repositioning here is what made the decoder restart every refresh.
               setTimeout(function () {
                 if (!self._stopped) self._fetchMPDAndDecode();
               }, Math.max(250, parsed.segDurSec * 250));
               return;
             } else {
-              startIdx = contIdx;   // in step with the master clock, carry on
+              startIdx = contIdx;
             }
 
           } else if (parsed.isLive) {
@@ -645,32 +512,21 @@
             }
 
             if (self._lastSegNum < 0) {
-              // First fetch: start SPD-equivalent segments behind live edge,
-              // matching the position dash.js picks.
-              // Player was just created in start() — do NOT recreate or SPS/PPS
-              // sent during init will be lost (player killed before segment arrives).
               startIdx = Math.max(0, urls.length - 1 - self._targetLagSegs);
               console.log('[WasmDecoder] live start: idx', startIdx, 'seg', parsed.startNumber + startIdx, '(target lag', self._targetLagSegs, 'segs)');
             } else {
               var nextSeg = self._lastSegNum + 1;
-              // Jump as soon as we're even 1 segment past target lag.
-              // On slow TV this fires quickly, skipping content instead of accumulating lag.
               if (liveEdge - nextSeg > self._targetLagSegs) {
-                // Behind live edge: jump forward and restart worker so all
-                // queued stale frames are discarded immediately.
                 console.log('[WasmDecoder] behind by', liveEdge - nextSeg, 'segs (target', self._targetLagSegs, ') — jumping, restarting player');
                 startIdx = Math.max(0, urls.length - 1 - self._targetLagSegs);
                 self._createPlayer();
-                self._initFetched = false; // re-send SPS/PPS to fresh decoder
+                self._initFetched = false;
               } else {
                 startIdx = Math.max(0, nextSeg - parsed.startNumber);
               }
             }
           }
 
-          // Decode ONE segment per MPD fetch so we re-check the live edge every
-          // ~segDurSec seconds.  On slow devices this triggers the live-edge jump
-          // above frequently, skipping content rather than falling behind.
           var pending = urls.slice(startIdx, startIdx + 1);
           return self._decodeSegments(pending, parsed.segDurSec,
                                       parsed.startNumber + startIdx,
@@ -679,38 +535,24 @@
             .then(function () {
               if (self._stopped) return;
 
-              // Segment-boundary lag check: compare wall-clock elapsed to how many
-              // frames the worker has actually decoded.  If the worker is more than
-              // one segment behind schedule (slow device / Broadway too slow), force
-              // a live-edge jump on the next MPD fetch by resetting _lastSegNum.
-              // Only meaningful without a master clock. When one is driving
-              // playback, position is corrected against it on every refresh and
-              // this wall-clock comparison would force needless jumps.
               if (parsed.isLive && masterT === null && self._playbackStart !== null) {
                 var elapsed   = Date.now() - self._playbackStart;
                 var decodedMs = self._globalFrameIdx * FRAME_DUR_MS;
                 var lagMs     = elapsed - decodedMs;
                 if (lagMs > parsed.segDurSec * 1000) {
                   console.log('[WasmDecoder] decode lag', Math.round(lagMs), 'ms — will jump to live edge');
-                  // Resetting lastSegNum forces the next MPD fetch to treat this
-                  // as a first-fetch and restart at targetLagSegs behind live edge.
                   self._lastSegNum  = -1;
                   self._createPlayer();
                   self._initFetched = false;
                 }
               }
 
-              // _decodeNALsPaced already waited segDurSec — fetch next MPD immediately.
               if (parsed.isLive) self._fetchMPDAndDecode();
             });
         });
       })
       .catch(function (e) {
         console.error('[WasmDecoder] MPD error:', e);
-        // Retrying forever against a manifest that will never load looks exactly
-        // like a decoder that is merely slow to start: an empty overlay, no
-        // message. On a terminal there is no console to check, so say it on
-        // screen once the retries stop being plausibly transient.
         self._mpdFails++;
         self._lastFailure = 'MPD: ' + (e && e.message ? e.message : e);
         if (self._mpdFails === 3 && typeof self.onError === 'function') {
@@ -723,22 +565,13 @@
       });
   };
 
-  // Decode picture NALs from one segment.
-  // With useWorker:true, player.decode() is a non-blocking postMessage — all NALs
-  // are queued to the worker immediately.  The per-frame display timing is handled
-  // inside onPictureDecoded via the global monotonic frame counter.
-  // We wait one segment duration before advancing so segments don't overlap and the
-  // frame counter stays accurate.
   WasmDecoder.prototype._decodeNALsPaced = function (nals, segDurSec, segPtsSec, cycleStartMs) {
     var self = this;
 
-    // Skip SEI NALs (type 6) — they produce no picture
     var filtered = nals.filter(function (nal) {
       return nal.length >= 5 && (nal[4] & 0x1F) !== 6;
     });
 
-    // Queue the presentation time of each picture so onPictureDecoded can show
-    // it against the master clock. Only picture NALs produce output.
     if (typeof segPtsSec === 'number' && isFinite(segPtsSec)) {
       var pi = 0;
       filtered.forEach(function (nal) {
@@ -750,46 +583,18 @@
       });
     }
 
-    // Feed NALs one at a time — _broadwayPlayStream processes one NAL unit per
-    // call; a concatenated multi-NAL buffer would only decode the first frame.
-    // transferMemory:true (set on the Player) makes each postMessage a zero-copy
-    // ownership transfer instead of copying the NAL data before sending.
     filtered.forEach(function (nal) {
       if (!self._stopped) self._player.decode(nal);
     });
 
-    // How long to wait before fetching the next segment.
-    //
-    // Sleeping a flat segment duration here is what made the overlay die after a
-    // minute. The sleep began once the manifest and the segment had already been
-    // fetched, so a cycle lasted a segment *plus* the network round trips — about
-    // 4.4 s of wall clock for 4 s of content over the television's wifi. Nothing
-    // ever gave that back, so the decoder's lead over the master clock shrank by
-    // roughly a tenth of a second every cycle. Measured on the television: 100
-    // frames rendered in the first cycle, then 64, 52, 44, 19, 2, then nothing at
-    // all, because once the lead is spent every frame arrives behind the master
-    // and onPictureDecoded drops it. On a desktop the round trips are shorter, so
-    // the same thing happens later rather than not at all.
-    //
-    // With a master clock the wait is therefore an absolute target rather than a
-    // relative sleep: hold until the master reaches the start of the segment just
-    // decoded, which keeps exactly one segment of lead. A cycle that overruns
-    // makes the next wait shorter by the same amount and the lead is restored, so
-    // error corrects itself instead of accumulating. Nothing to do with how the
-    // segments are produced — live encoding would drift identically.
     var waitMs;
     var master = self._masterTime();
     if (master !== null && typeof segPtsSec === 'number' && isFinite(segPtsSec)) {
       waitMs = (segPtsSec - master) * 1000;
     } else {
-      // No master clock (the standalone overlay): pace off the wall clock, but
-      // measure from the start of the cycle so the fetches are inside the
-      // segment duration rather than added to it.
       var elapsed = typeof cycleStartMs === 'number' ? Date.now() - cycleStartMs : 0;
       waitMs = segDurSec * 1000 - elapsed;
     }
-    // Never longer than a segment: a clock that reads far ahead must not park the
-    // decoder for minutes. Never negative: behind means fetch now and catch up.
     waitMs = Math.max(0, Math.min(waitMs, segDurSec * 1000));
 
     return new Promise(function (resolve) {

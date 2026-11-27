@@ -1,18 +1,4 @@
 #!/bin/sh
-# Obtain a Let's Encrypt certificate for the service and switch nginx to HTTPS.
-#
-#   sh deploy/enable-tls
-#   sh deploy/enable-tls --dry-run     rehearse against the ACME staging server
-#
-# Safe to run before the firewall is open. It checks reachability first and stops
-# with the exact request to hand the administrator rather than burning attempts
-# against the rate-limited production ACME endpoint.
-#
-# Does not change BASE_URL. Serving HTTPS and *advertising* HTTPS are separate
-# steps on purpose: an HTTPS page may not load HTTP sub-resources, so the moment
-# the service list, the XML AIT and the MPD URLs switch, they must all switch at
-# once and TLS must already work. Verify HTTPS by hand, then set BASE_URL in .env
-# and run deploy/update.
 set -e
 
 DOMAIN=dvb-i.lmmfe.org
@@ -44,7 +30,6 @@ certificate is about to expire — worth having."
 
 sudo -v
 
-# ── 1. Does the name point here ───────────────────────────────────────────────
 say "Checking DNS"
 RESOLVED=$(getent hosts "$DOMAIN" | awk '{print $1}' | head -1)
 PUBLIC=$(curl -sf --max-time 10 https://ifconfig.me || true)
@@ -57,7 +42,6 @@ if [ -n "$PUBLIC" ] && [ "$RESOLVED" != "$PUBLIC" ]; then
 answered by the wrong machine."
 fi
 
-# ── 2. Serve the challenge path ───────────────────────────────────────────────
 say "Installing nginx configuration"
 sudo mkdir -p "$WEBROOT/.well-known/acme-challenge"
 sudo cp deploy/dvbi-locations.conf /etc/nginx/snippets/dvbi-locations.conf
@@ -66,11 +50,6 @@ sudo ln -sf /etc/nginx/sites-available/dvbi /etc/nginx/sites-enabled/dvbi
 sudo nginx -t
 sudo systemctl reload nginx
 
-# ── 3. Prove the challenge path is reachable from outside ─────────────────────
-# Certbot's failure for a filtered port looks like a DNS or configuration fault,
-# and each attempt counts against a rate limit. Answer the question directly
-# first, with a token fetched over the public address rather than over loopback —
-# only an external fetch says anything about the firewall.
 say "Checking that port 80 is reachable from the internet"
 TOKEN="preflight-$(date +%s)"
 echo "$TOKEN" | sudo tee "$WEBROOT/.well-known/acme-challenge/$TOKEN" >/dev/null
@@ -100,23 +79,9 @@ the site is still served on 9080 exactly as before."
 fi
 echo "  reachable"
 
-# ── 4. Certificate ────────────────────────────────────────────────────────────
 say "Obtaining certificate"
 command -v certbot >/dev/null 2>&1 || sudo apt-get install -y certbot
 
-# webroot rather than the nginx plugin: the plugin rewrites the site file, which
-# would put the deployed configuration out of step with the one in the repository.
-#
-# RSA rather than certbot's ECDSA default. The default chains to ISRG Root X2,
-# issued in 2020; RSA chains to ISRG Root X1, which is older and far more widely
-# present in the trust stores of televisions that have not seen a firmware update
-# in years. Some of those sets also reject ECDSA server certificates outright.
-# The devices this service exists for are exactly the ones least likely to cope
-# with the newer chain, and nothing here is performance-sensitive.
-#
-# --cert-name pins the lineage to the domain name. Without it certbot refuses to
-# change an existing certificate's key type, which is exactly what a re-run
-# against a lineage created before this flag existed would be asking for.
 sudo certbot certonly --webroot -w "$WEBROOT" -d "$DOMAIN" \
   --cert-name "$DOMAIN" --key-type rsa \
   --agree-tos -m "$EMAIL" --non-interactive $STAGING
@@ -127,14 +92,12 @@ if [ -n "$STAGING" ]; then
   exit 0
 fi
 
-# ── 5. Switch on HTTPS ────────────────────────────────────────────────────────
 say "Enabling HTTPS"
 sudo cp deploy/nginx-dvbi-tls.conf /etc/nginx/sites-available/dvbi-tls
 sudo ln -sf /etc/nginx/sites-available/dvbi-tls /etc/nginx/sites-enabled/dvbi-tls
 sudo nginx -t
 sudo systemctl reload nginx
 
-# ── 6. Verify ─────────────────────────────────────────────────────────────────
 say "Verifying"
 FAIL=0
 ok()   { printf '  ok   %s\n' "$1"; }
@@ -143,10 +106,10 @@ bad()  { printf '  FAIL %s\n' "$1"; FAIL=1; }
 curl -sf --max-time 15 "https://$DOMAIN/frontend/android/player.html" >/dev/null \
   && ok "client reachable over HTTPS" || bad "client not reachable over HTTPS"
 
-curl -sf --max-time 15 "https://$DOMAIN/stream/live/combined/stream.mpd" >/dev/null \
+curl -sf --max-time 15 "https://$DOMAIN/stream/live/prenosniki/stream.mpd" >/dev/null \
   && ok "MPD reachable over HTTPS" || bad "MPD not reachable over HTTPS"
 
-curl -sf --max-time 15 "http://$DOMAIN:9080/stream/live/combined/stream.mpd" >/dev/null \
+curl -sf --max-time 15 "http://$DOMAIN:9080/stream/live/prenosniki/stream.mpd" >/dev/null \
   && ok "plain HTTP on 9080 still works (fallback for older terminals)" \
   || bad "plain HTTP on 9080 stopped working"
 

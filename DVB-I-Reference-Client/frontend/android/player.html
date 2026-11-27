@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=960, user-scalable=no" />
     <meta name="theme-color" content="#0098f4" />
     <title>DVB-I RefApp</title>
 
@@ -16,14 +16,14 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="#0098f4" />
     <meta name="apple-mobile-web-app-title" content="DVB-I" />
-    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+    <link rel="apple-touch-icon" href="images/apple-touch-icon.png" />
 
     <link rel="stylesheet" type="text/css" href="styles/dvbi.css?v=1" />
     <link rel="icon" href="images/icons-512.png" type="image/x-icon" />
     <link rel="manifest" href="./manifest.json" />
 
 <!--    <script src="http://cdn.dashjs.org/v4.7.4/dash.all.min.js"></script> -->
-    <script src="https://cdn.dashjs.org/v5.0.0/modern/umd/dash.all.min.js"></script>
+    <script src="../../hbbtv-app/js/dash.all.min.js"></script>
 <!--    <script src="https://cdn.dashjs.org/v5.0.0/modern/umd/dash.all.debug.js"></script> -->
     <script src="../../identifiers.js"></script>
     <script src="../../namespaces.js"></script>
@@ -41,6 +41,7 @@
     <script src="../dvbi-common.js"></script>
     <script src="../localstorage.js"></script>
     <script src="../i18n/i18n.js"></script>
+    <script src="../../hbbtv-app/js/test-session.js"></script>
     <script src="js/remote.js"></script>
   </head>
   <body style="margin: 0px" class="player">
@@ -61,27 +62,6 @@
                 </div>
                 <div class="col-12 text-white footer mt-auto mb-4">
                   <div id="channel_info"> </div>
-                  <!-- <div id="buttons" style="display: none">
-                    <span class="menuitem_epg btn btn-outline-dark btn-small mt-1 p-1" onclick="showEpg()">
-                      <span class="text-white epg_button">Open EPG</span>
-                    </span>
-                    <span class="menuitem_epg btn btn-outline-dark btn-small mt-1 p-1" onclick="toggleSettings()">
-                      <span class="text-white settings_button">Settings</span>
-                    </span>
-                    <span style="display: none" id="pause" class="menuitem_epg btn btn-outline-dark btn-small mt-1 p-1">
-                      <a href="javascript:togglePause()" class="text-white pause_button">Pause</a>
-                    </span>
-                    <span style="display: none" id="play" class="menuitem_epg btn btn-outline-dark btn-small mt-1 p-1">
-                      <a href="javascript:togglePause()" class="text-white play_button">Play</a>
-                    </span>
-                    <span
-                      style="display: none" id="subtitle" class="menuitem_epg btn btn-outline-dark btn-small mt-1 p-1">
-                      <a href="javascript:showSubtitles()" class="text-white subtitle_button">Subtitles</a>
-                    </span>
-                    <span style="display: none" id="audio" class="menuitem_epg btn btn-outline-dark btn-small mt-1 p-1">
-                      <a href="javascript:showAudio()" class="text-white audio_button">Audio</a>
-                    </span>
-                  </div> -->
                 </div>
               </div>
             </div>

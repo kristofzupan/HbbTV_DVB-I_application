@@ -1,34 +1,28 @@
 #!/bin/sh
-# Cut the pre-rendered sources into the segments that will be served, once.
-# Run after ./prerender, and after any change to the subtitle document.
-#
-# Every segment the stream will ever send is produced here. The publisher
-# (scripts/publish-loop.js) then does nothing but decide which of them is
-# current, so no encoder or packager runs while the service is up.
-#
-# Audio and video come from ffmpeg with -c copy: the sources already carry an
-# IDR exactly every 4 s, so the segments fall on keyframes without re-encoding.
-# Subtitles come from MP4Box, because ffmpeg's DASH muxer cannot package TTML —
-# given -c:s ttml it emits the track as contentType="audio" with an empty
-# @codecs and audioSamplingRate="0", which is not a subtitle track by any
-# reading of ETSI TS 103 285 clause 7.1.1. Verified still true on ffmpeg 9.0.1.
-#
-# MP4Box produces a conformant stpp track (subt:stpp, RFC6381 stpp.ttml) but
-# leaves out two things DVB-DASH requires of the manifest: @contentType="text"
-# and a Role. Both are set by the publisher, which writes the manifest itself.
 set -e
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-SRC_COMBINED="$ROOT/video_content/source_combined.mp4"
-SRC_BURNED="$ROOT/video_content/source_burned.mp4"
+VC="$ROOT/video_content"
 SUBS="$ROOT/DVB-I-Reference-Client/hbbtv-app/subtitles/main_slv.xml"
 LOOP="$ROOT/DVB-I-Reference-Client/stream/loop"
 
 SEG_SECONDS=${SEG_SECONDS:-4}
 
-for f in "$SRC_COMBINED" "$SRC_BURNED" "$SUBS"; do
-  [ -f "$f" ] || { echo "Missing $f — run ./prerender first" >&2; exit 1; }
+PRESENTATIONS="normal:plain tvmaribor:plain prenosniki:signed napoved:signed bucko:signed"
+SUBTITLED=prenosniki
+
+for p in $PRESENTATIONS; do
+  f="$VC/source_${p%%:*}.mp4"
+  [ -f "$f" ] && continue
+  if [ "${p%%:*}" = normal ]; then
+    echo "Missing $f — run ./prerender-normal where the recording is," >&2
+    echo "or copy the file over from a machine that has it" >&2
+  else
+    echo "Missing $f — run ./prerender first" >&2
+  fi
+  exit 1
 done
+[ -f "$SUBS" ] || { echo "Missing $SUBS" >&2; exit 1; }
 
 command -v MP4Box >/dev/null || {
   echo "MP4Box not found. Install GPAC (macOS: brew install gpac,"          >&2
@@ -37,16 +31,7 @@ command -v MP4Box >/dev/null || {
 }
 
 rm -rf "$LOOP"
-mkdir -p "$LOOP/combined" "$LOOP/burned"
 
-# -window_size 0 keeps every segment rather than rolling a live window, and
-# -remove_at_exit is deliberately absent: these files are the product.
-#
-# The manifest ffmpeg writes here is not the one that gets served — the
-# publisher writes that — but it is kept until the end of this script because it
-# is where the RFC 6381 codec strings and bandwidths come from. Deriving
-# "avc1.640028" from ffprobe output by hand is a way to get it subtly wrong;
-# ffmpeg has already worked it out.
 dash_av() {
   _src=$1; _out=$2; shift 2
   ffmpeg -y -loglevel warning -i "$_src" "$@" -c copy \
@@ -55,32 +40,20 @@ dash_av() {
     "$_out/packager.mpd"
 }
 
-DURATION=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$SRC_COMBINED" | cut -d. -f1)
-TARGET_SEGS=$((DURATION / SEG_SECONDS))
-[ $((TARGET_SEGS * SEG_SECONDS)) -eq "$DURATION" ] || {
-  echo "Source is ${DURATION}s, not a whole number of ${SEG_SECONDS}s segments — run ./prerender" >&2
-  exit 1
+whole_segments() {
+  _d=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$1" | cut -d. -f1)
+  [ $(( (_d / SEG_SECONDS) * SEG_SECONDS )) -eq "$_d" ] || {
+    echo "$1 is ${_d}s, not a whole number of ${SEG_SECONDS}s segments — re-run its prerender" >&2
+    exit 1
+  }
+  echo "$_d"
 }
 
-echo "== Segmenting audio and video"
-dash_av "$SRC_COMBINED" "$LOOP/combined" -map 0:v:0 -map 0:a:0 -map 0:v:1
-dash_av "$SRC_BURNED"   "$LOOP/burned"   -map 0:v:0 -map 0:a:0
-
-# An AAC frame is 1024 samples, so at 48 kHz a segment holds 187.5 of them and
-# audio can never be cut at exactly four seconds. ffmpeg deals with that by
-# emitting one extra segment carrying the leftover — here a single frame, 21 ms,
-# in a 194 byte file. Dropping it would shorten the loop by 21 ms every time
-# round, which is the same kind of accumulating error that put the subtitles 94
-# seconds out; keeping it as its own segment would leave audio with one more
-# segment than everything else, so the representations could not share a
-# numbering. Append it to the segment before instead: a DASH segment may hold
-# more than one fragment, so the result is a valid slightly-longer last segment,
-# and the loop still totals exactly the source duration.
 normalise_segments() {
-  _dir=$1
+  _dir=$1; _target=$2
   for _rep in $(ls "$_dir" | sed -n 's/^chunk-stream\([0-9]*\)-.*/\1/p' | sort -u); do
     _n=$(ls "$_dir"/chunk-stream$_rep-*.m4s | wc -l | tr -d ' ')
-    while [ "$_n" -gt "$TARGET_SEGS" ]; do
+    while [ "$_n" -gt "$_target" ]; do
       _last=$(printf '%s/chunk-stream%s-%05d.m4s' "$_dir" "$_rep" "$_n")
       _prev=$(printf '%s/chunk-stream%s-%05d.m4s' "$_dir" "$_rep" $((_n - 1)))
       cat "$_last" >> "$_prev"
@@ -89,68 +62,73 @@ normalise_segments() {
     done
   done
 }
-normalise_segments "$LOOP/combined"
-normalise_segments "$LOOP/burned"
 
-# The subtitle track is the same document on both channels: the burnt-in channel
-# needs subtitles as much as the overlay one, and a viewer comparing them should
-# not be comparing a channel with subtitles against a channel without. It is
-# packaged once and copied, rather than packaged twice, so the two cannot drift.
+echo "== Segmenting audio and video"
+DESCRIBE=""
+for p in $PRESENTATIONS; do
+  name=${p%%:*}; kind=${p#*:}
+  src="$VC/source_$name.mp4"
+  dur=$(whole_segments "$src")
+  mkdir -p "$LOOP/$name"
+  if [ "$kind" = signed ]; then
+    dash_av "$src" "$LOOP/$name" -map 0:v:0 -map 0:a:0 -map 0:v:1
+  else
+    dash_av "$src" "$LOOP/$name" -map 0:v:0 -map 0:a:0
+  fi
+  normalise_segments "$LOOP/$name" $((dur / SEG_SECONDS))
+  echo "  $name: $((dur / SEG_SECONDS)) segments, ${dur}s"
+  DESCRIBE="$DESCRIBE $name:$kind:$dur"
+done
+
+SUB_IDX=3
+
 echo "== Segmenting subtitles"
+SUB_DUR=""
+for s in $DESCRIBE; do
+  case "$s" in "$SUBTITLED":*) SUB_DUR=${s##*:} ;; esac
+done
 _tmp=$(mktemp -d)
-MP4Box -quiet -add "$SUBS:ext=ttml" -new "$_tmp/subs.mp4" >/dev/null 2>&1
-MP4Box -quiet -dash $((SEG_SECONDS * 1000)) -profile dashavc264:live \
-       -segment-name 'sub-$Number$' -out "$_tmp/subs.mpd" "$_tmp/subs.mp4" >/dev/null 2>&1
+_end=$(printf '%05d:%02d:%02d' $((SUB_DUR / 3600)) $((SUB_DUR % 3600 / 60)) $((SUB_DUR % 60)))
+_last=$(printf '%05d:%02d:%02d' $(((SUB_DUR - 1) / 3600)) $(((SUB_DUR - 1) % 3600 / 60)) $(((SUB_DUR - 1) % 60)))
+awk -v first="        <p region=\"bottom\" style=\"para\" begin=\"00000:00:00.000\" end=\"00000:00:00.040\"></p>" \
+    -v last="        <p region=\"bottom\" style=\"para\" begin=\"$_last.960\" end=\"$_end.000\"></p>" '
+      /^    <\/div>/ && !l { print last; l = 1 }
+      { print }
+      /^    <div>/ && !f { print first; f = 1 }' "$SUBS" > "$_tmp/subs.xml"
+grep -q "end=\"$_end.000\"></p>" "$_tmp/subs.xml" &&
+grep -q 'end="00000:00:00.040"></p>' "$_tmp/subs.xml" || {
+  echo "Could not add the opening and closing cues to $SUBS — has its layout changed?" >&2; exit 1; }
+( cd "$_tmp" &&
+  MP4Box -quiet -add "subs.xml:ext=ttml" -new subs.mp4 >/dev/null 2>&1 &&
+  MP4Box -quiet -dash $((SEG_SECONDS * 1000)) -profile dashavc264:live \
+         -segment-name 'sub-$Number$' -out subs.mpd subs.mp4 >/dev/null 2>&1 ) || {
+  echo "MP4Box failed on the subtitles" >&2; exit 1; }
 
-# Renamed into the convention the audio and video already use, so the manifest
-# has one naming scheme and the publisher one rule for building a filename.
-# Subtitles are the last stream of each presentation: 3 on combined (video,
-# audio, signer), 2 on burned (video, audio).
-# Counted up to explicitly rather than iterating a glob. MP4Box numbers its
-# output sub-1 … sub-62 without padding, and a glob returns those in
-# lexicographic order — sub-1, sub-10, sub-11 … sub-19, sub-2, sub-20 — so
-# renumbering in glob order silently shuffles the subtitles. It is not visible
-# in any count or size: every segment is present, every segment is the right
-# length, and the cues simply belong to the wrong four seconds. Caught by
-# reading a segment and finding a cue that begins 30 seconds after the segment
-# ends.
-place_subs() {
-  _out=$1; _idx=$2
-  cp "$_tmp/sub-init.mp4" "$_out/init-stream$_idx.m4s"
-  _total=$(ls "$_tmp"/sub-*.m4s | wc -l | tr -d ' ')
-  _n=1
-  while [ "$_n" -le "$_total" ]; do
-    cp "$_tmp/sub-$_n.m4s" "$(printf '%s/chunk-stream%d-%05d.m4s' "$_out" "$_idx" "$_n")"
-    _n=$((_n + 1))
-  done
-  echo "$_total"
-}
-SUB_IDX_COMBINED=3
-SUB_IDX_BURNED=2
-SUB_SEGS=$(place_subs "$LOOP/combined" "$SUB_IDX_COMBINED")
-place_subs "$LOOP/burned" "$SUB_IDX_BURNED" >/dev/null
+cp "$_tmp/sub-init.mp4" "$LOOP/$SUBTITLED/init-stream$SUB_IDX.m4s"
+_total=$(ls "$_tmp"/sub-*.m4s | wc -l | tr -d ' ')
+_n=1
+while [ "$_n" -le "$_total" ]; do
+  cp "$_tmp/sub-$_n.m4s" "$(printf '%s/chunk-stream%d-%05d.m4s' "$LOOP/$SUBTITLED" "$SUB_IDX" "$_n")"
+  _n=$((_n + 1))
+done
 rm -rf "$_tmp"
 
-# The segments still carry timestamps from inside the loop, which the publisher
-# rewrites as it serves them. This puts them all in the one shape that makes
-# that a single fixed-width write: no sidx to keep in agreement, and a 64-bit
-# tfdt in every representation.
 echo "== Normalising segments"
-python3 "$ROOT/scripts/normalise-segments.py" "$LOOP/combined" "$LOOP/burned"
+set --
+for p in $PRESENTATIONS; do set -- "$@" "$LOOP/${p%%:*}"; done
+python3 "$ROOT/scripts/normalise-segments.py" "$@"
 
-# What the publisher needs to describe these files in a manifest, recorded here
-# so that nothing has to probe media at serving time. Roles are assigned by
-# position, which is what the -map order in ./prerender fixes: video, audio,
-# signer on the overlay channel; video, audio on the burnt-in one.
 echo "== Describing the loop"
-python3 - "$LOOP" "$TARGET_SEGS" "$SEG_SECONDS" "$DURATION" "$SUB_IDX_COMBINED" "$SUB_IDX_BURNED" <<'PY'
-import json, sys, xml.etree.ElementTree as ET, os
-loop, segs, segsec, dur, sub_c, sub_b = sys.argv[1:7]
+python3 - "$LOOP" "$SEG_SECONDS" "$SUBTITLED" "$SUB_IDX" $DESCRIBE <<'PY'
+import json, struct, sys, xml.etree.ElementTree as ET, os
+loop, segsec, subtitled, sub_idx = sys.argv[1:5]
+segsec = int(segsec)
 NS = "{urn:mpeg:dash:schema:mpd:2011}"
-out = {"segments": int(segs), "segmentSeconds": int(segsec),
-       "loopSeconds": int(dur), "presentations": {}}
+out = {"segmentSeconds": segsec, "presentations": {}}
 
-for name, sub_idx in (("combined", int(sub_c)), ("burned", int(sub_b))):
+for spec in sys.argv[5:]:
+    name, kind, dur = spec.split(":")
+    dur = int(dur)
     reps = []
     tree = ET.parse(os.path.join(loop, name, "packager.mpd"))
     for aset in tree.getroot().iter(NS + "AdaptationSet"):
@@ -164,21 +142,15 @@ for name, sub_idx in (("combined", int(sub_c)), ("burned", int(sub_b))):
             v = rep.get(k) or aset.get(k)
             if v: r[k] = v
         reps.append(r)
-    # Roles the client acts on: the overlay application finds the signer by its
-    # Role and would otherwise decode the full-size picture, which it cannot.
-    if len(reps) == 3:
+    if kind == "signed":
+        assert len(reps) == 3, f"{name}: expected 3 tracks, got {len(reps)}"
         reps[0]["role"] = "main"
         reps[2]["role"] = "sign"
-    reps.append({"id": str(sub_idx), "contentType": "text",
-                 "mimeType": "application/mp4", "codecs": "stpp.ttml.etd1",
-                 "bandwidth": 2500, "lang": "sl", "role": "subtitle"})
+    if name == subtitled:
+        reps.append({"id": sub_idx, "contentType": "text",
+                     "mimeType": "application/mp4", "codecs": "stpp.ttml.etd1",
+                     "bandwidth": 2500, "lang": "sl", "role": "subtitle"})
 
-    # The media timescale of each track, read out of its init segment. The
-    # publisher needs it to turn "this is the nth time round the loop" into the
-    # number of ticks to add to a segment's baseMediaDecodeTime, and the three
-    # tracks do not agree on it — 12800 for video, 48000 for audio, 1000 for
-    # the subtitles as MP4Box writes them.
-    import struct
     for r in reps:
         init = open(os.path.join(loop, name, f"init-stream{r['id']}.m4s"), "rb").read()
         j = init.find(b"mdhd")
@@ -186,41 +158,29 @@ for name, sub_idx in (("combined", int(sub_c)), ("burned", int(sub_b))):
         r["timescale"] = struct.unpack(">I", init[j + 20:j + 24] if ver == 1
                                        else init[j + 16:j + 20])[0]
 
-    out["presentations"][name] = reps
+    out["presentations"][name] = {"segments": dur // segsec,
+                                  "loopSeconds": dur,
+                                  "representations": reps}
 
 with open(os.path.join(loop, "loop.json"), "w") as f:
     json.dump(out, f, indent=2)
 print(f"  {loop}/loop.json")
 PY
-rm -f "$LOOP"/combined/packager.mpd "$LOOP"/burned/packager.mpd
+for p in $PRESENTATIONS; do rm -f "$LOOP/${p%%:*}/packager.mpd"; done
 
-# Two things have to hold, and neither is visible by looking at the files. Every
-# representation must have the same number of segments, so one segment number
-# means the same instant on all of them. And each must decode to exactly the
-# source duration, because a representation that is even one frame short would
-# slip a little further behind on every loop rather than staying put — the
-# failure that put the subtitles 94 seconds out is exactly this, discovered
-# after five days rather than at packaging time.
 echo "== Verifying"
 fail=0
-for d in combined burned; do
-  case "$d" in
-    combined) sub_idx=$SUB_IDX_COMBINED ;;
-    burned)   sub_idx=$SUB_IDX_BURNED ;;
-  esac
+for spec in $DESCRIBE; do
+  d=${spec%%:*}; want_dur=${spec##*:}
+  want_segs=$((want_dur / SEG_SECONDS))
+  sub_idx=""; [ "$d" = "$SUBTITLED" ] && sub_idx=$SUB_IDX
   for rep in $(ls "$LOOP/$d" | sed -n 's/^chunk-stream\([0-9]*\)-.*/\1/p' | sort -u); do
     n=$(ls "$LOOP/$d"/chunk-stream$rep-*.m4s 2>/dev/null | wc -l | tr -d ' ')
     [ -f "$LOOP/$d/init-stream$rep.m4s" ] || { echo "    FAIL: no init segment" >&2; fail=1; }
-    [ "$n" = "$TARGET_SEGS" ] || { echo "    FAIL: expected $TARGET_SEGS segments" >&2; fail=1; }
+    [ "$n" = "$want_segs" ] || { echo "    FAIL: $d stream $rep has $n segments, expected $want_segs" >&2; fail=1; }
 
-    # Subtitles are sampled where cues are, not continuously: the periods
-    # between cues carry an empty document and the track has no samples of its
-    # own to measure. Concatenating the segments and asking ffprobe for a
-    # duration reports the span of the samples that exist, not the span of the
-    # timeline, so on this content it answers 36 s for a 248 s track. The
-    # segment count is the invariant that means anything here.
     if [ "$rep" = "$sub_idx" ]; then
-      printf '  %-9s stream %s: %3s segments (subtitles, sparse by nature)\n' "$d" "$rep" "$n"
+      printf '  %-10s stream %s: %4s segments (subtitles, sparse by nature)\n' "$d" "$rep" "$n"
       continue
     fi
 
@@ -228,63 +188,44 @@ for d in combined burned; do
     cat "$LOOP/$d/init-stream$rep.m4s" "$LOOP/$d"/chunk-stream$rep-*.m4s > "$_probe" 2>/dev/null
     dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$_probe" 2>/dev/null)
     rm -f "$_probe"
-    printf '  %-9s stream %s: %3s segments, %ss\n' "$d" "$rep" "$n" "$dur"
+    printf '  %-10s stream %s: %4s segments, %ss\n' "$d" "$rep" "$n" "$dur"
 
-    # Allow one audio frame of slack, and no more. An AAC frame is 1024 samples
-    # — 21.3 ms at 48 kHz — and some ffmpeg versions carry one extra across the
-    # copy where others do not: 9.0.1 packages this source to exactly 248 s,
-    # the ffmpeg in Ubuntu noble to 248.021333.
-    #
-    # Slack rather than exactness because of how the publisher loops. It maps a
-    # segment number to a loop position per representation, ((n-1) mod 62) + 1,
-    # so every representation returns to its first segment after 62 segments no
-    # matter what its media says. A frame of surplus is therefore a seam of
-    # 21 ms once per loop, not an offset that grows — unlike the 56 ms per loop
-    # that compounded into 94 seconds when the subtitles were replayed against a
-    # measured length. Anything larger than a frame is not that, and still fails.
-    awk -v got="$dur" -v want="$DURATION" -v slack=0.0214 '
+    awk -v got="$dur" -v want="$want_dur" -v slack=0.0214 '
       BEGIN {
         d = got - want;
         if (d < 0) d = -d;
         exit (d <= slack) ? 0 : 1;
-      }' || { echo "    FAIL: decodes to $dur, expected $DURATION (±0.0214)" >&2; fail=1; }
+      }' || { echo "    FAIL: decodes to $dur, expected $want_dur (±0.0214)" >&2; fail=1; }
   done
 done
-# Counts and durations cannot see a subtitle track whose segments are in the
-# wrong order: every segment is present and the right length, the cues just
-# belong to the wrong four seconds. So read the cues back and check each one
-# overlaps the window its segment covers. A cue may legitimately start before
-# its segment and run past the end of it, so the test is overlap, not
-# containment.
-python3 - "$LOOP" "$SEG_SECONDS" "$SUB_IDX_COMBINED" "$SUB_IDX_BURNED" <<'PY' || fail=1
+python3 - "$LOOP" "$SEG_SECONDS" "$SUBTITLED" "$SUB_IDX" <<'PY' || fail=1
 import re, sys, os
-loop, seg, sub_c, sub_b = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
+loop, seg, name, idx = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
 
 def secs(t):
     h, m, s = t.split(":")
     return int(h) * 3600 + int(m) * 60 + float(s)
 
-bad = 0
-for name, idx in (("combined", sub_c), ("burned", sub_b)):
-    checked = 0
-    for n in range(1, 63):
-        p = os.path.join(loop, name, f"chunk-stream{idx}-{n:05d}.m4s")
-        if not os.path.exists(p):
-            continue
-        data = open(p, "rb").read()
-        lo, hi = (n - 1) * seg, n * seg
-        for b, e in zip(re.findall(rb'begin="([^"]+)"', data),
-                        re.findall(rb'end="([^"]+)"', data)):
-            bs, es = secs(b.decode()), secs(e.decode())
-            checked += 1
-            if es <= lo or bs >= hi:
-                print(f"    FAIL {name} segment {n} covers {lo}-{hi}s "
-                      f"but holds a cue at {bs}-{es}s", file=sys.stderr)
-                bad += 1
-    print(f"  {name:9s} subtitles: {checked} cues, all within their segment"
-          if not bad else f"  {name:9s} subtitles: {bad} misplaced")
+bad = checked = n = 0
+while True:
+    n += 1
+    p = os.path.join(loop, name, f"chunk-stream{idx}-{n:05d}.m4s")
+    if not os.path.exists(p):
+        break
+    data = open(p, "rb").read()
+    lo, hi = (n - 1) * seg, n * seg
+    for b, e in zip(re.findall(rb'begin="([^"]+)"', data),
+                    re.findall(rb'end="([^"]+)"', data)):
+        bs, es = secs(b.decode()), secs(e.decode())
+        checked += 1
+        if es <= lo or bs >= hi:
+            print(f"    FAIL {name} segment {n} covers {lo}-{hi}s "
+                  f"but holds a cue at {bs}-{es}s", file=sys.stderr)
+            bad += 1
+print(f"  {name:10s} subtitles: {checked} cues, all within their segment"
+      if not bad else f"  {name:10s} subtitles: {bad} misplaced")
 sys.exit(1 if bad else 0)
 PY
 
 [ "$fail" = "0" ] || exit 1
-echo "  ok — every representation is $TARGET_SEGS segments totalling ${DURATION}s"
+echo "  ok —$(for s in $DESCRIBE; do printf ' %s %ss,' "${s%%:*}" "${s##*:}"; done | sed 's/,$//')"

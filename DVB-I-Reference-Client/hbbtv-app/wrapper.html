@@ -1,15 +1,15 @@
-<!DOCTYPE html>                                                                                                                                                                                                                
-<html>                                                                                                                                                                                                                         
-<head>                                                                                                                                                                                                                         
-<meta charset="UTF-8">                                                                                                                                                                                                       
-<script>              
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<script>
     if (window.tizen && tizen.tvinputdevice) {
-    ['ColorF0Red', 'ColorF1Green', 'ColorF2Yellow', 'ColorF3Blue', 'Back'].forEach(function (k) {                                                                                                                            
-        try { tizen.tvinputdevice.registerKey(k); } catch (e) {}                                   
-    });                                                                                                                                                                                                                      
-    }    
-    window.location.replace('http://localhost:9080/hbbtv-app/index.html');                                                                                                                                                 
+        ['ColorF0Red', 'ColorF1Green', 'ColorF2Yellow', 'ColorF3Blue', 'Back'].forEach(function (k) {
+            try { tizen.tvinputdevice.registerKey(k); } catch (e) {}
+        });
+    }
+    window.location.replace('http://localhost:9080/hbbtv-app/index.html');
 </script>
-</head>                                                                                                                                                                                                                        
+</head>
 <body></body>
-</html>  
+</html>

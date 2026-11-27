@@ -36,6 +36,7 @@ public class MainActivity extends AppCompatActivity implements Observer {
     public static final String webviewCacheSubdir = "webviewAppCache";
     private static final String webviewDatabaseSubdir = "webviewDatabase";
 	private static final String TAG = MainActivity.class.getName();
+	private static final int SCAN_CODE_TEXT = 369;
     public static final String INTENT_TARGET_URL = "targetUrl";
     public static final String EXTRA_WEBVIEW_WINDOW_OPEN = "MainActivity.Extra.WEBVIEW_WINDOW_OPEN";
     private static final int REQUEST_WEBFORM = 300;
@@ -163,10 +164,6 @@ public class MainActivity extends AppCompatActivity implements Observer {
             url = savedInstanceState.getString("url");
         if (url == null && isRoot && appConfig != null) {
             url = appConfig.getInitialUrl();
-            // The initial URL may already carry a query — the overlay build is
-            // started on index.html?interpreter=<mpd>. Appending a second "?"
-            // would fold platform and date into the interpreter parameter,
-            // leaving the application with an unusable stream address.
             String separator = url.contains("?") ? "&" : "?";
             String platformString = separator + "platform=";
             platformString = platformString + "mobile";
@@ -511,6 +508,14 @@ public class MainActivity extends AppCompatActivity implements Observer {
                 if (event.getAction() == KeyEvent.ACTION_DOWN) {
                     runJavascript("javascript:document.dispatchEvent(new KeyboardEvent('keydown',{keyCode:'" + keyCode + "'}));\n");
                 }
+                return true;
+            } else if (event.getScanCode() == SCAN_CODE_TEXT) {
+                if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                    runJavascript("javascript:document.dispatchEvent(new KeyboardEvent('keydown',{keyCode:'460'}));\n");
+                }
+                return true;
+            } else if (keyCode == KeyEvent.KEYCODE_UNKNOWN) {
+                Log.d(TAG, "dropped unmapped key, scan code " + event.getScanCode());
                 return true;
             } else {
                 super.dispatchKeyEvent(event);

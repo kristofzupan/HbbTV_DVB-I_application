@@ -1,254 +1,254 @@
 1
-00:00:01,290 --> 00:00:06,050
-Vse kakor svetujem  uporabniku,
+00:00:15,490 --> 00:00:20,250
+Vsekakor svetujem uporabniku,
 da najprej poskusimo s popravilom,
 
 2
-00:00:06,130 --> 00:00:09,630
+00:00:20,330 --> 00:00:23,830
 ker stara naprava ravno
 tako deluje kot nova.
 
 3
-00:00:18,772 --> 00:00:19,784
+00:00:32,972 --> 00:00:33,984
 Dober dan!
 
 4
-00:00:19,844 --> 00:00:21,286
+00:00:34,044 --> 00:00:35,486
 Dober dan, kar naprej.
 
 5
-00:00:21,365 --> 00:00:25,690
-Evo tukaj sem prinesla računalnik,
+00:00:35,565 --> 00:00:39,890
+Evo, tukaj sem prinesla računalnik,
 to je od moje mame.
 
 6
-00:00:25,853 --> 00:00:27,853
+00:00:40,053 --> 00:00:42,053
 Nekaj so težave z njim.
 
 7
-00:00:28,056 --> 00:00:30,788
-Kar vzamite ga iz torbice,
+00:00:42,256 --> 00:00:44,988
+Kar vzemite ga iz torbice,
 da pogledava.
 
 8
-00:00:32,127 --> 00:00:35,851
+00:00:46,327 --> 00:00:50,051
 Kakšne težave ima,
-ja je pa res malo starejši že.
+ja, je pa res malo starejši že.
 
 9
-00:00:47,260 --> 00:00:50,260
+00:01:01,460 --> 00:01:04,460
 Prenosnik je delujoč,
 greva v operacijski sistem,
 
 10
-00:00:50,340 --> 00:00:51,540
+00:01:04,540 --> 00:01:05,740
 sicer je zastarel.
 
 11
-00:00:51,920 --> 00:00:56,840
+00:01:06,120 --> 00:01:11,040
 Tukaj bi lahko poskusili s posodobitvijo
 na novejši operacijski sistem.
 
 12
-00:00:58,340 --> 00:01:01,200
+00:01:12,540 --> 00:01:15,400
 Vidimo, če prenosnik ima licenco.
 
 13
-00:01:02,560 --> 00:01:06,120
+00:01:16,760 --> 00:01:20,320
 Licenca je. Najbolje,
 da se to prevzame v servis,
 
 14
-00:01:06,200 --> 00:01:09,107
+00:01:20,400 --> 00:01:23,307
 da ga pregledamo, vas bomo obvestili.
 
 15
-00:01:20,310 --> 00:01:24,830
+00:01:34,510 --> 00:01:39,030
 Popravilo računalnikov bi
 jaz razdelil na dva dela.
 
 16
-00:01:25,030 --> 00:01:26,910
+00:01:39,230 --> 00:01:41,110
 Prvi del je tisti računalniški del,
 
 17
-00:01:26,990 --> 00:01:30,050
+00:01:41,190 --> 00:01:44,250
 kjer menjamo trde diske,
 spominske module,
 
 18
-00:01:30,250 --> 00:01:33,470
+00:01:44,450 --> 00:01:47,670
 pogledamo čez Windowsi kaj
 narobe ali tekoče deluje,
 
 19
-00:01:33,534 --> 00:01:35,928
+00:01:47,734 --> 00:01:50,128
 očistimo prah,
 tečaj in tako naprej.
 
 20
-00:01:36,015 --> 00:01:40,940
- In to je enota,
+00:01:50,215 --> 00:01:55,140
+In to je enota,
 na katero se namesti operacijski
 
 21
-00:01:41,020 --> 00:01:44,120
-sistem. Kamor se vse shranjuje,
+00:01:55,220 --> 00:01:58,320
+sistem, kamor se vse shranjuje.
 
 22
-00:01:45,020 --> 00:01:46,260
+00:01:59,220 --> 00:02:00,460
 To je trdi disk,
 
 23
-00:01:46,460 --> 00:01:50,640
+00:02:00,660 --> 00:02:04,840
 ta je zastarel in je šibka
 točka starejših prenosnikov.
 
 24
-00:01:50,720 --> 00:01:56,000
+00:02:04,920 --> 00:02:10,200
 Potem ga nadomestimo z elektronskim
 SSD diskom in bomo pripomogli,
 
 25
-00:01:56,080 --> 00:02:00,580
+00:02:10,280 --> 00:02:14,780
 da bo tole zadostovalo našim potrebam,
 
 26
-00:02:00,700 --> 00:02:03,420
+00:02:14,900 --> 00:02:17,620
 ko se tiče hitrosti in zmogljivosti.
 
 27
-00:02:03,640 --> 00:02:08,080
+00:02:17,840 --> 00:02:22,280
 Čeprav je računalnik že starejši,
 tako, to je stari disk,
 
 28
-00:02:08,160 --> 00:02:12,400
-Tega bomo nadomestili z novim
+00:02:22,360 --> 00:02:26,600
+tega bomo nadomestili z novim
 elektronskim in to je to.
 
 29
-00:02:18,620 --> 00:02:22,880
+00:02:32,820 --> 00:02:37,080
 Kaj pa se zgodi,
-ko je prenosnik ima večje težave,
+ko prenosnik ima večje težave,
 
 30
-00:02:22,960 --> 00:02:27,000
+00:02:37,160 --> 00:02:41,200
 torej se ne vklopi,
 mrtev je, črte po ekranu,
 
 31
-00:02:27,080 --> 00:02:29,520
+00:02:41,280 --> 00:02:43,720
 takrat pa nastopimo elektroniki.
 
 32
-00:02:30,520 --> 00:02:35,580
+00:02:44,720 --> 00:02:49,780
 Sestavni del prenosnika je sistemska
 plošča in ta sistemska plošča
 
 33
-00:02:35,660 --> 00:02:40,960
+00:02:49,860 --> 00:02:55,160
 velja kot glavni rezervni del in lahko
 zamenjamo samo sistemsko ploščo.
 
 34
-00:02:41,140 --> 00:02:44,880
-kaj več pa na njej menjati ne moremo,
+00:02:55,340 --> 00:02:59,080
+Kaj več pa na njej menjati ne moremo,
 kar se tiče računalništva.
 
 35
-00:02:44,960 --> 00:02:49,520
+00:02:59,160 --> 00:03:03,720
 Takrat to ploščo pogledamo v elektroniki,
 jo popravimo.
 
 36
-00:02:49,640 --> 00:02:54,440
-To zahteva predvsej truda,
-zahteva izobrazba,
+00:03:03,840 --> 00:03:08,640
+To zahteva predvsem truda,
+zahteva izobrazbo,
 
 37
-00:02:54,520 --> 00:02:56,500
+00:03:08,720 --> 00:03:10,700
 učimo se elektroniki celo življenje,
 
 38
-00:02:56,580 --> 00:02:59,880
+00:03:10,780 --> 00:03:14,080
 se izpopolnjujemo,
 sodelujemo z drugimi servisi.
 
 39
-00:03:02,160 --> 00:03:06,840
+00:03:16,360 --> 00:03:21,040
 Če nam uspe popraviti to ploščo,
 smo naredili veliko,
 
 40
-00:03:06,920 --> 00:03:08,780
-ker to so so zelo drage stvari.
+00:03:21,120 --> 00:03:22,980
+ker to so zelo drage stvari.
 
 41
-00:03:08,860 --> 00:03:14,920
-In v večjih primerjih menjava te
+00:03:23,060 --> 00:03:29,120
+In v večjih primerih menjava te
 plošče v prenosniku ni smiselna,
 
 42
-00:03:15,000 --> 00:03:19,320
+00:03:29,200 --> 00:03:33,520
 ker je cena te plošče skoraj
 toliko kot novi prenosnik.
 
 43
-00:03:19,400 --> 00:03:21,260
+00:03:33,600 --> 00:03:35,460
 Popravilo plošče je smiselno,
 
 44
-00:03:21,340 --> 00:03:24,960
-ker naša stvoritev je relativno
+00:03:35,540 --> 00:03:39,160
+ker naša storitev je relativno
 
 45
-00:03:25,040 --> 00:03:29,040
+00:03:39,240 --> 00:03:43,240
 poceni proti ceni nove plošče.
 
 46
-00:03:29,160 --> 00:03:34,040
+00:03:43,360 --> 00:03:48,240
 S popravilom tudi naredimo,
 da prenosnik deluje dlje časa,
 
 47
-00:03:34,120 --> 00:03:36,660
+00:03:48,320 --> 00:03:50,860
 ker imamo nekako nadzor
 nad to elektroniko,
 
 48
-00:03:36,740 --> 00:03:39,720
+00:03:50,940 --> 00:03:53,920
 ki to znamo popravljati.
 Ni nas strah reklamacije.
 
 49
-00:03:39,800 --> 00:03:43,740
-Torej si upamo elektroniki reci,
+00:03:54,000 --> 00:03:57,940
+Torej si upamo elektroniki reči,
 da ta prenosnik bo deloval,
 
 50
-00:03:43,820 --> 00:03:46,287
+00:03:58,020 --> 00:04:00,487
 dokler ga stranka želi imeti na mizi.
 
 51
-00:03:50,690 --> 00:03:55,090
+00:04:04,890 --> 00:04:09,290
 Tukaj bomo samo še pogledali na hitro,
 kakšna je enota spominska,
 
 52
-00:03:55,930 --> 00:03:58,930
+00:04:10,130 --> 00:04:13,130
 da vam povemo okvirne
 stroške popravila.
 
 53
-00:03:59,470 --> 00:04:02,210
+00:04:13,670 --> 00:04:16,410
 Potem bomo prenosnik
-pregledali bolj natačno
+pregledali bolj natančno
 
 54
-00:04:02,290 --> 00:04:04,370
+00:04:16,490 --> 00:04:18,570
 in vam poslali ponudbo za popravilo,
 
 55
-00:04:04,450 --> 00:04:05,717
+00:04:18,650 --> 00:04:19,917
 da se lahko odločite.
